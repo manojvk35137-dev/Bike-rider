@@ -1,4 +1,4 @@
-name: Build Bike Rider Android APK
+name: Bike Rider Android APK
 on:
   workflow_dispatch:
   push:
