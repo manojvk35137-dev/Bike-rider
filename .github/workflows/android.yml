@@ -3,7 +3,8 @@ name: Bike Rider Web Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,6 +12,7 @@ permissions:
 
 jobs:
   build:
+    name: Build Bike Rider
     runs-on: ubuntu-latest
 
     steps:
@@ -23,13 +25,15 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build game
         run: npm run build
 
-      - name: Save build output
+      - name: Upload build output
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: bike-rider-web-build
           path: dist/
+          if-no-files-found: error
