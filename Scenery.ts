@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { GAME_CONSTANTS } from '../constants';
+import { GAME_CONSTANTS } from './constants';
 import {
   createAsphaltRoadTexture,
   createAsphaltRoughnessTexture,
   createGuardrailTexture,
   createHighwaySignTexture,
-} from '../textures';
+} from './textures';
 
 export interface HighwaySegment {
   group: THREE.Group;
