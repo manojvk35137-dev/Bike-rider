@@ -24,16 +24,19 @@ export class TrafficManager {
     this.mode = mode;
   }
 
-  public reset(playerZ: number, mode: GameMode = 'one-way') {
+  public reset(playerZ: number, mode: GameMode = 'one-way'): void {
     this.mode = mode;
 
     for (const vehicle of this.vehicles) {
       this.scene.remove(vehicle.mesh);
     }
+
     this.vehicles = [];
 
     for (let i = 0; i < 9; i++) {
-      const spawnZ = playerZ - (45 + i * 32 + Math.random() * 15);
+      const spawnZ =
+        playerZ - (45 + i * 32 + Math.random() * 15);
+
       this.spawnVehicle(spawnZ);
     }
   }
@@ -41,9 +44,11 @@ export class TrafficManager {
   private getRandomVehicleType(lane: number): VehicleType {
     if (lane === 3) {
       const r = Math.random();
+
       if (r < 0.45) return 'truck';
       if (r < 0.75) return 'bus';
       if (r < 0.9) return 'van';
+
       return 'suv';
     }
 
@@ -51,8 +56,14 @@ export class TrafficManager {
       return Math.random() < 0.7 ? 'sedan' : 'suv';
     }
 
-    const types: VehicleType[] = ['sedan', 'suv', 'van', 'sedan'];
-    return types[Math.floor(Math.random() * types.length)];
+    const types: VehicleType[] = [
+      'sedan',
+      'suv',
+      'van',
+      'sedan',
+    ];
+
+    return types[Math.floor(Math.random() * types.length)]!;
   }
 
   private getLaneSpeed(lane: number): number {
@@ -73,10 +84,11 @@ export class TrafficManager {
     }
   }
 
-  public spawnVehicle(spawnZ: number) {
+  public spawnVehicle(spawnZ: number): void {
     const laneIndex = Math.floor(
       Math.random() * GAME_CONSTANTS.LANES_COUNT,
     );
+
     const laneX = GAME_CONSTANTS.LANE_CENTERS[laneIndex];
 
     if (laneX === undefined) return;
@@ -93,7 +105,9 @@ export class TrafficManager {
     }
 
     const type = this.getRandomVehicleType(laneIndex);
-    const { mesh, taillightMat, dimensions } = createVehicleModel(type);
+
+    const { mesh, taillightMat, dimensions } =
+      createVehicleModel(type);
 
     mesh.position.set(laneX, 0, spawnZ);
 
@@ -135,7 +149,7 @@ export class TrafficManager {
     playerX: number,
     playerZ: number,
     playerSpeedKmh: number,
-  ) {
+  ): void {
     const {
       PLAYER_BOUNDS,
       CLOSE_CALL_MAX_DIST,
@@ -159,6 +173,7 @@ export class TrafficManager {
 
     for (let i = this.vehicles.length - 1; i >= 0; i--) {
       const vehicle = this.vehicles[i];
+
       if (!vehicle) continue;
 
       const speedMs =
@@ -177,6 +192,7 @@ export class TrafficManager {
         vehicle.targetX,
         0.05,
       );
+
       vehicle.mesh.position.x = vehicle.x;
 
       let needsBrake = false;
@@ -185,6 +201,7 @@ export class TrafficManager {
         if (i === j) continue;
 
         const other = this.vehicles[j];
+
         if (!other) continue;
 
         if (
@@ -202,6 +219,7 @@ export class TrafficManager {
           vehicle.baseSpeedKmh * 0.65,
           vehicle.speedKmh - 45 * delta,
         );
+
         vehicle.isBraking = true;
         vehicle.taillightMat.emissiveIntensity = 2.2;
       } else {
@@ -209,6 +227,7 @@ export class TrafficManager {
           vehicle.baseSpeedKmh,
           vehicle.speedKmh + 20 * delta,
         );
+
         vehicle.isBraking = false;
         vehicle.taillightMat.emissiveIntensity = 0.6;
       }
@@ -249,6 +268,7 @@ export class TrafficManager {
           vehicle.closeCallAwarded = true;
 
           const speedFactor = Math.floor(playerSpeedKmh / 20);
+
           const points =
             CLOSE_CALL_BONUS_SCORE + speedFactor * 50;
 
