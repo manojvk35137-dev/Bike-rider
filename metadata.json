@@ -1,0 +1,6 @@
+{
+  "name": "Moto Rider: Highway Rush",
+  "description": "Realistic first-person 3D motorcycle traffic racing game with cockpit handlebars, dynamic traffic, close call bonuses, and immersive sound effects.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
