@@ -1,24 +1,41 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { sounds } from './audio/SoundEffects';
-import { GameOverModal } from './components/GameOverModal';
-import { HUD } from './components/HUD';
-import { PauseModal } from './components/PauseModal';
-import { StartScreen } from './components/StartScreen';
-import { GameMode, GameStats } from './game/constants';
-import { GameEngine, InputState } from './game/GameEngine';
-import { MOTORCYCLE_REGISTRY, MotorcycleConfig } from './game/motorcycles';
+import { sounds } from './SoundEffects';
+
+import { GameOverModal } from '../../GameOverModal';
+import { HUD } from '../../HUD';
+import { PauseModal } from '../../PauseModal';
+import { StartScreen } from '../../StartScreen';
+
+import {
+  GameMode,
+  GameStats,
+} from '../../constants';
+
+import {
+  GameEngine,
+  InputState,
+} from '../../GameEngine';
+
+import {
+  MOTORCYCLE_REGISTRY,
+  MotorcycleConfig,
+} from '../../motorcycles';
 
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
 
-  const [selectedBike, setSelectedBike] = useState<MotorcycleConfig>(MOTORCYCLE_REGISTRY[0]);
-  const [currentMode, setCurrentMode] = useState<GameMode>('one-way');
-  const [gameStarted, setGameStarted] = useState<boolean>(false);
-  const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [isGameOver, setIsGameOver] = useState<boolean>(false);
-  const [isNewHigh, setIsNewHigh] = useState<boolean>(false);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [selectedBike, setSelectedBike] =
+    useState<MotorcycleConfig>(MOTORCYCLE_REGISTRY[0]);
+
+  const [currentMode, setCurrentMode] =
+    useState<GameMode>('one-way');
+
+  const [gameStarted, setGameStarted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [isNewHigh, setIsNewHigh] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   const [highScore, setHighScore] = useState<number>(() => {
     try {
@@ -45,7 +62,6 @@ export default function App() {
     lastCloseCallPoints: 0,
   });
 
-  // Reusable keyboard input state
   const inputsRef = useRef<InputState>({
     steerLeft: false,
     steerRight: false,
@@ -55,24 +71,35 @@ export default function App() {
     boost: false,
   });
 
-  // Initialize WebGL Game Engine once
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const engine = new GameEngine(canvasMountRef.current, selectedBike);
+    const engine = new GameEngine(
+      canvasMountRef.current,
+      selectedBike
+    );
+
     engineRef.current = engine;
 
     engine.onStatsUpdate = (stats) => {
       setGameStats(stats);
-      if (stats.score > highScore) {
-        setHighScore(stats.score);
+
+      setHighScore((previous) => {
+        if (stats.score <= previous) return previous;
+
         setIsNewHigh(true);
+
         try {
-          localStorage.setItem('moto_rider_highscore', stats.score.toString());
+          localStorage.setItem(
+            'moto_rider_highscore',
+            stats.score.toString()
+          );
         } catch {
-          // ignore
+          // Local storage may be unavailable.
         }
-      }
+
+        return stats.score;
+      });
     };
 
     engine.onGameOver = (finalStats) => {
@@ -81,13 +108,12 @@ export default function App() {
       setGameStarted(false);
     };
 
-    // Keyboard handlers
     const onKeyDown = (e: KeyboardEvent) => {
-      // Initialize audio on first key press
       sounds.init();
       sounds.resume();
 
       if (e.repeat) return;
+
       const code = e.code;
 
       if (code === 'KeyW' || code === 'ArrowUp') {
@@ -108,7 +134,10 @@ export default function App() {
       } else if (code === 'KeyH') {
         engine.inputs.horn = true;
         inputsRef.current.horn = true;
-      } else if (code === 'KeyP' || code === 'Escape') {
+      } else if (
+        code === 'KeyP' ||
+        code === 'Escape'
+      ) {
         if (engine.isRunning && !engine.isGameOver) {
           if (engine.isPaused) {
             engine.resumeGame();
@@ -123,6 +152,7 @@ export default function App() {
 
     const onKeyUp = (e: KeyboardEvent) => {
       const code = e.code;
+
       if (code === 'KeyW' || code === 'ArrowUp') {
         engine.inputs.throttle = false;
         inputsRef.current.throttle = false;
@@ -145,13 +175,13 @@ export default function App() {
     };
 
     const onBlur = () => {
-      // Clear held keys on blur as per guidelines
       engine.inputs.steerLeft = false;
       engine.inputs.steerRight = false;
       engine.inputs.throttle = false;
       engine.inputs.brake = false;
       engine.inputs.boost = false;
       engine.inputs.horn = false;
+
       inputsRef.current.steerLeft = false;
       inputsRef.current.steerRight = false;
       inputsRef.current.throttle = false;
@@ -168,34 +198,49 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+
       engine.destroy();
+      engineRef.current = null;
     };
   }, []);
 
-  const handleSelectBike = useCallback((bike: MotorcycleConfig) => {
-    setSelectedBike(bike);
-    if (engineRef.current) {
-      engineRef.current.setMotorcycle(bike);
-    }
-  }, []);
+  const handleSelectBike = useCallback(
+    (bike: MotorcycleConfig) => {
+      setSelectedBike(bike);
 
-  const handleStartGame = useCallback((mode: GameMode, bike: MotorcycleConfig) => {
-    setCurrentMode(mode);
-    setSelectedBike(bike);
-    setIsNewHigh(false);
-    setIsGameOver(false);
-    setIsPaused(false);
-    setGameStarted(true);
+      if (engineRef.current) {
+        engineRef.current.setMotorcycle(bike);
+      }
+    },
+    []
+  );
 
-    if (engineRef.current) {
-      engineRef.current.setMotorcycle(bike);
-      engineRef.current.startGame(mode);
-    }
-  }, []);
+  const handleStartGame = useCallback(
+    (mode: GameMode, bike: MotorcycleConfig) => {
+      setCurrentMode(mode);
+      setSelectedBike(bike);
+      setIsNewHigh(false);
+      setIsGameOver(false);
+      setIsPaused(false);
+      setGameStarted(true);
+
+      if (engineRef.current) {
+        engineRef.current.setMotorcycle(bike);
+        engineRef.current.startGame(mode);
+      }
+    },
+    []
+  );
 
   const handlePause = useCallback(() => {
-    if (engineRef.current && engineRef.current.isRunning && !engineRef.current.isGameOver) {
-      engineRef.current.pauseGame();
+    const engine = engineRef.current;
+
+    if (
+      engine &&
+      engine.isRunning &&
+      !engine.isGameOver
+    ) {
+      engine.pauseGame();
       setIsPaused(true);
     }
   }, []);
@@ -212,37 +257,48 @@ export default function App() {
     setIsGameOver(false);
     setIsPaused(false);
     setGameStarted(true);
+
     if (engineRef.current) {
+      engineRef.current.setMotorcycle(selectedBike);
       engineRef.current.startGame(currentMode);
     }
-  }, [currentMode]);
+  }, [currentMode, selectedBike]);
 
   const handleReturnToGarage = useCallback(() => {
     setIsGameOver(false);
     setIsPaused(false);
     setGameStarted(false);
+
     sounds.stopAll();
+
     if (engineRef.current) {
       engineRef.current.isRunning = false;
     }
   }, []);
 
   const handleToggleMute = useCallback(() => {
-    const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
-    sounds.setMuted(nextMuted);
-  }, [isMuted]);
+    setIsMuted((previous) => {
+      const next = !previous;
+      sounds.setMuted(next);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none font-sans">
-      {/* 3D WebGL Canvas Viewport */}
-      <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
+      <div
+        ref={canvasMountRef}
+        className="absolute inset-0 w-full h-full"
+      />
 
-      {/* In-Game First-Person Cockpit HUD */}
       {gameStarted && !isPaused && !isGameOver && (
         <HUD
           stats={gameStats}
-          inputs={engineRef.current ? engineRef.current.inputs : inputsRef.current}
+          inputs={
+            engineRef.current
+              ? engineRef.current.inputs
+              : inputsRef.current
+          }
           onPause={handlePause}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
@@ -250,7 +306,6 @@ export default function App() {
         />
       )}
 
-      {/* Start & Motorcycle Selection Screen */}
       {!gameStarted && !isGameOver && (
         <StartScreen
           onStartGame={handleStartGame}
@@ -262,7 +317,6 @@ export default function App() {
         />
       )}
 
-      {/* Pause Menu Modal */}
       {isPaused && (
         <PauseModal
           onResume={handleResume}
@@ -274,7 +328,6 @@ export default function App() {
         />
       )}
 
-      {/* Game Over Modal */}
       {isGameOver && (
         <GameOverModal
           stats={gameStats}
