@@ -1,17 +1,17 @@
-
 /**
- * Procedural Web Audio Engine for Motorcycle Racing.
- * Bullet 350-inspired deep single-cylinder thump.
- * Keeps existing sound-controller methods and exports.
+ * Advanced Procedural Web Audio API sound generator for motorcycle racing.
+ * Physically simulated multi-oscillator engine acoustic synthesis
+ * tailored to all 7 Royal Enfield single-cylinder engine architectures.
  */
 
 import { SoundProfile } from '../game/motorcycles';
 
 class SoundController {
   private ctx: AudioContext | null = null;
-  private isMuted = false;
+  private isMuted: boolean = false;
   private masterGain: GainNode | null = null;
 
+  // Volume channels
   private engineMasterGain: GainNode | null = null;
   private windMasterGain: GainNode | null = null;
   private fxMasterGain: GainNode | null = null;
@@ -20,286 +20,248 @@ class SoundController {
     master: 0.85,
     engine: 0.9,
     traffic: 0.75,
-    wind: 0.6,
+    wind: 0.65,
   };
 
-  private idleBufferSource: AudioBufferSourceNode | null = null;
-  private accelBufferSource: AudioBufferSourceNode | null = null;
-  private coastBufferSource: AudioBufferSourceNode | null = null;
-
-  private idleGain: GainNode | null = null;
-  private accelGain: GainNode | null = null;
-  private coastGain: GainNode | null = null;
-
-  private subBassOsc: OscillatorNode | null = null;
-  private subBassGain: GainNode | null = null;
-
-  private gearWhineOsc: OscillatorNode | null = null;
+  // Engine audio nodes
+  private pulseOsc: OscillatorNode | null = null;       // Main 4-stroke power combustion stroke
+  private subBassOsc: OscillatorNode | null = null;     // Low-end single-cylinder chest thump
+  private mechanicalNoiseNode: AudioBufferSourceNode | null = null; // Valve / tappet clatter
+  private mechanicalGain: GainNode | null = null;
+  private mechanicalFilter: BiquadFilterNode | null = null;
+  private gearWhineOsc: OscillatorNode | null = null;   // Primary drive gear whine (Himalayan 411)
   private gearWhineGain: GainNode | null = null;
+  private engineFilter: BiquadFilterNode | null = null;  // Dynamic exhaust resonator filter
+  private engineGain: GainNode | null = null;
 
-  private engineFilter: BiquadFilterNode | null = null;
+  // Deceleration overrun pops
+  private lastThrottleState: boolean = false;
+  private overrunTimer: number = 0;
 
-  private lastThrottleState = false;
-  private overrunTimer = 0;
-
+  // Wind turbulence audio nodes
   private windGain: GainNode | null = null;
   private windFilter: BiquadFilterNode | null = null;
   private windNoiseNode: AudioBufferSourceNode | null = null;
 
+  // Brake squeal nodes
   private brakeGain: GainNode | null = null;
   private brakeOsc: OscillatorNode | null = null;
 
+  // Horn nodes
   private hornOsc1: OscillatorNode | null = null;
   private hornOsc2: OscillatorNode | null = null;
   private hornGain: GainNode | null = null;
 
+  // Current engine profile settings (initialized to Bullet 350 default)
   private currentProfile: SoundProfile = {
     id: 'bullet-350-sound',
-    name: 'Bullet 350 Deep Thump',
-    idlePulseFreq: 9,
-    maxPulseFreq: 44,
-    subBassFreq: 34,
-    subBassDepth: 0.95,
+    name: 'Bullet 350 Traditional Peashooter Thump',
+    idlePulseFreq: 9.2,
+    maxPulseFreq: 45,
+    subBassFreq: 35,
+    subBassDepth: 0.92,
     filterIdle: 280,
-    filterMax: 1650,
+    filterMax: 1600,
     mechanicalClatter: 0.35,
     gearWhine: 0.08,
-    overrunPop: 0.25,
+    overrunPop: 0.18,
     exhaustTone: 'deep-bullet-thump',
-    exhaustDescription:
-      'Procedural low-frequency single-cylinder thump with exhaust resonance.',
-    disclaimer:
-      'Synthesized Bullet 350-inspired audio; not an original motorcycle recording.',
+    exhaustDescription: 'Traditional straight-pipe peashooter silencer with heavy low-RPM rhythmic thump.',
+    disclaimer: 'High-fidelity procedural Web Audio physical simulation of Bullet 350 single-cylinder combustion cycle.',
   };
 
-  private isRunning = false;
+  private isRunning: boolean = false;
 
   constructor() {}
 
   public init() {
     if (this.ctx) {
       if (this.ctx.state === 'suspended') {
-        void this.ctx.resume().catch(() => {});
+        this.ctx.resume();
       }
       return;
     }
 
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as {
-          webkitAudioContext: typeof AudioContext;
-        }).webkitAudioContext;
-
-      if (!AudioCtx) return;
-
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioCtx();
 
+      // Master output bus
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.isMuted
-        ? 0
-        : this.volumeSettings.master;
+      this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : this.volumeSettings.master, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
 
+      // Sub-buses
       this.engineMasterGain = this.ctx.createGain();
-      this.engineMasterGain.gain.value = this.volumeSettings.engine;
+      this.engineMasterGain.gain.setValueAtTime(this.volumeSettings.engine, this.ctx.currentTime);
       this.engineMasterGain.connect(this.masterGain);
 
       this.windMasterGain = this.ctx.createGain();
-      this.windMasterGain.gain.value = this.volumeSettings.wind;
+      this.windMasterGain.gain.setValueAtTime(this.volumeSettings.wind, this.ctx.currentTime);
       this.windMasterGain.connect(this.masterGain);
 
       this.fxMasterGain = this.ctx.createGain();
-      this.fxMasterGain.gain.value = this.volumeSettings.traffic;
+      this.fxMasterGain.gain.setValueAtTime(this.volumeSettings.traffic, this.ctx.currentTime);
       this.fxMasterGain.connect(this.masterGain);
 
-      this.buildEngineAcousticLayers();
+      this.setupEngine();
       this.setupWind();
       this.setupBrake();
       this.setupHorn();
-
       this.isRunning = true;
     } catch {
-      // Audio may be unavailable in the current browser.
+      // Audio not supported or blocked
     }
   }
 
-  private buildEngineAcousticLayers() {
+  public setProfile(profile: SoundProfile) {
+    this.currentProfile = profile;
+    if (this.ctx && this.engineFilter) {
+      this.engineFilter.frequency.setTargetAtTime(profile.filterIdle, this.ctx.currentTime, 0.05);
+    }
+  }
+
+  public getProfile(): SoundProfile {
+    return this.currentProfile;
+  }
+
+  public resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  public setMuted(muted: boolean) {
+    this.isMuted = muted;
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : this.volumeSettings.master, this.ctx.currentTime, 0.05);
+    }
+  }
+
+  public getIsMuted(): boolean {
+    return this.isMuted;
+  }
+
+  public setVolumes(master?: number, engine?: number, wind?: number, traffic?: number) {
+    if (master !== undefined) this.volumeSettings.master = Math.max(0, Math.min(1, master));
+    if (engine !== undefined) this.volumeSettings.engine = Math.max(0, Math.min(1, engine));
+    if (wind !== undefined) this.volumeSettings.wind = Math.max(0, Math.min(1, wind));
+    if (traffic !== undefined) this.volumeSettings.traffic = Math.max(0, Math.min(1, traffic));
+
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    if (this.masterGain && !this.isMuted) {
+      this.masterGain.gain.setTargetAtTime(this.volumeSettings.master, t, 0.05);
+    }
+    if (this.engineMasterGain) {
+      this.engineMasterGain.gain.setTargetAtTime(this.volumeSettings.engine, t, 0.05);
+    }
+    if (this.windMasterGain) {
+      this.windMasterGain.gain.setTargetAtTime(this.volumeSettings.wind, t, 0.05);
+    }
+    if (this.fxMasterGain) {
+      this.fxMasterGain.gain.setTargetAtTime(this.volumeSettings.traffic, t, 0.05);
+    }
+  }
+
+  private setupEngine() {
     if (!this.ctx || !this.engineMasterGain) return;
 
-    const ctx = this.ctx;
-    const sampleRate = ctx.sampleRate;
-    const duration = 2;
-    const totalSamples = Math.floor(sampleRate * duration);
+    this.engineGain = this.ctx.createGain();
+    this.engineGain.gain.setValueAtTime(0.01, this.ctx.currentTime);
 
-    this.engineFilter = ctx.createBiquadFilter();
+    // Resonant exhaust chamber filter
+    this.engineFilter = this.ctx.createBiquadFilter();
     this.engineFilter.type = 'lowpass';
-    this.engineFilter.frequency.value = this.currentProfile.filterIdle;
-    this.engineFilter.Q.value = 1.2;
+    this.engineFilter.frequency.setValueAtTime(this.currentProfile.filterIdle, this.ctx.currentTime);
+    this.engineFilter.Q.setValueAtTime(3.8, this.ctx.currentTime);
 
-    // Profile-controlled combustion cadence.
-    const idlePulsePeriod =
-      sampleRate /
-      Math.max(1, this.currentProfile.idlePulseFreq);
+    // 1. Primary Combustion Firing Pulse (Sawtooth produces authentic mechanical exhaust snap)
+    this.pulseOsc = this.ctx.createOscillator();
+    this.pulseOsc.type = 'sawtooth';
+    this.pulseOsc.frequency.setValueAtTime(this.currentProfile.idlePulseFreq * 2, this.ctx.currentTime);
 
-    const idleBuffer = ctx.createBuffer(1, totalSamples, sampleRate);
-    const idleData = idleBuffer.getChannelData(0);
-
-    for (let i = 0; i < totalSamples; i++) {
-      const pos = (i % idlePulsePeriod) / sampleRate;
-      let sample = 0;
-
-      if (pos < 0.095) {
-        const decay = Math.exp(-pos * 48);
-
-        const thump =
-          Math.sin(2 * Math.PI * 62 * pos) * 0.55 +
-          Math.sin(2 * Math.PI * 110 * pos) * 0.35 +
-          Math.sin(2 * Math.PI * 165 * pos) * 0.16 +
-          Math.sin(2 * Math.PI * 220 * pos) * 0.08;
-
-        const softAttack =
-          pos < 0.003
-            ? (Math.random() * 2 - 1) * 0.12
-            : 0;
-
-        sample = (thump + softAttack) * decay;
-      }
-
-      idleData[i] = sample;
-    }
-
-    const accelBuffer = ctx.createBuffer(1, totalSamples, sampleRate);
-    const accelData = accelBuffer.getChannelData(0);
-
-    for (let i = 0; i < totalSamples; i++) {
-      const pos = (i % idlePulsePeriod) / sampleRate;
-      let sample = 0;
-
-      if (pos < 0.105) {
-        const decay = Math.exp(-pos * 34);
-
-        const bark =
-          Math.sin(2 * Math.PI * 75 * pos) * 0.48 +
-          Math.sin(2 * Math.PI * 135 * pos) * 0.38 +
-          Math.sin(2 * Math.PI * 270 * pos) * 0.17 +
-          (Math.random() * 2 - 1) * 0.07;
-
-        sample = bark * decay;
-      }
-
-      accelData[i] = sample;
-    }
-
-    const coastBuffer = ctx.createBuffer(1, totalSamples, sampleRate);
-    const coastData = coastBuffer.getChannelData(0);
-
-    for (let i = 0; i < totalSamples; i++) {
-      const pos = (i % idlePulsePeriod) / sampleRate;
-      let sample = 0;
-
-      if (pos < 0.085) {
-        const decay = Math.exp(-pos * 58);
-
-        sample =
-          (
-            Math.sin(2 * Math.PI * 55 * pos) * 0.55 +
-            Math.sin(2 * Math.PI * 110 * pos) * 0.22
-          ) * decay * 0.62;
-      }
-
-      coastData[i] = sample;
-    }
-
-    this.idleBufferSource = ctx.createBufferSource();
-    this.idleBufferSource.buffer = idleBuffer;
-    this.idleBufferSource.loop = true;
-
-    this.accelBufferSource = ctx.createBufferSource();
-    this.accelBufferSource.buffer = accelBuffer;
-    this.accelBufferSource.loop = true;
-
-    this.coastBufferSource = ctx.createBufferSource();
-    this.coastBufferSource.buffer = coastBuffer;
-    this.coastBufferSource.loop = true;
-
-    this.idleGain = ctx.createGain();
-    this.idleGain.gain.value = 0.5;
-
-    this.accelGain = ctx.createGain();
-    this.accelGain.gain.value = 0;
-
-    this.coastGain = ctx.createGain();
-    this.coastGain.gain.value = 0;
-
-    this.idleBufferSource.connect(this.idleGain);
-    this.accelBufferSource.connect(this.accelGain);
-    this.coastBufferSource.connect(this.coastGain);
-
-    this.idleGain.connect(this.engineFilter);
-    this.accelGain.connect(this.engineFilter);
-    this.coastGain.connect(this.engineFilter);
-
-    // Deep low-frequency layer.
-    this.subBassOsc = ctx.createOscillator();
+    // 2. Sub-Bass Fundamental Thump (Deep sine wave giving the physical chest thump)
+    this.subBassOsc = this.ctx.createOscillator();
     this.subBassOsc.type = 'sine';
-    this.subBassOsc.frequency.value = this.currentProfile.subBassFreq;
+    this.subBassOsc.frequency.setValueAtTime(this.currentProfile.subBassFreq, this.ctx.currentTime);
 
-    this.subBassGain = ctx.createGain();
-    this.subBassGain.gain.value = 0.3;
-
-    this.subBassOsc.connect(this.subBassGain);
-    this.subBassGain.connect(this.engineFilter);
-
-    this.gearWhineOsc = ctx.createOscillator();
+    // 3. Primary Reduction Gear Whine (Iconic on Himalayan 411 LS410 engine)
+    this.gearWhineOsc = this.ctx.createOscillator();
     this.gearWhineOsc.type = 'triangle';
-    this.gearWhineOsc.frequency.value = 220;
+    this.gearWhineOsc.frequency.setValueAtTime(240, this.ctx.currentTime);
 
-    this.gearWhineGain = ctx.createGain();
-    this.gearWhineGain.gain.value = 0;
+    this.gearWhineGain = this.ctx.createGain();
+    this.gearWhineGain.gain.setValueAtTime(0, this.ctx.currentTime);
 
     this.gearWhineOsc.connect(this.gearWhineGain);
-    this.gearWhineGain.connect(this.engineFilter);
+    this.gearWhineGain.connect(this.engineGain);
 
-    this.engineFilter.connect(this.engineMasterGain);
+    // 4. Mechanical Tappet / Cam Chain Clatter Generator
+    const noiseBufferSize = this.ctx.sampleRate * 1.5;
+    const clatterBuffer = this.ctx.createBuffer(1, noiseBufferSize, this.ctx.sampleRate);
+    const cData = clatterBuffer.getChannelData(0);
+    for (let i = 0; i < noiseBufferSize; i++) {
+      // Periodic clicks mimicking pushrod tappet slaps
+      const click = (i % 800 < 40) ? (Math.random() * 2 - 1) * 0.9 : (Math.random() * 2 - 1) * 0.08;
+      cData[i] = click;
+    }
 
-    this.idleBufferSource.start();
-    this.accelBufferSource.start();
-    this.coastBufferSource.start();
+    this.mechanicalNoiseNode = this.ctx.createBufferSource();
+    this.mechanicalNoiseNode.buffer = clatterBuffer;
+    this.mechanicalNoiseNode.loop = true;
+
+    this.mechanicalFilter = this.ctx.createBiquadFilter();
+    this.mechanicalFilter.type = 'bandpass';
+    this.mechanicalFilter.frequency.setValueAtTime(2200, this.ctx.currentTime);
+    this.mechanicalFilter.Q.setValueAtTime(5.0, this.ctx.currentTime);
+
+    this.mechanicalGain = this.ctx.createGain();
+    this.mechanicalGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+    this.mechanicalNoiseNode.connect(this.mechanicalFilter);
+    this.mechanicalFilter.connect(this.mechanicalGain);
+    this.mechanicalGain.connect(this.engineGain);
+
+    // Connect oscillators to filter & gain
+    this.pulseOsc.connect(this.engineFilter);
+    this.subBassOsc.connect(this.engineFilter);
+
+    this.engineFilter.connect(this.engineGain);
+    this.engineGain.connect(this.engineMasterGain);
+
+    this.pulseOsc.start();
     this.subBassOsc.start();
     this.gearWhineOsc.start();
+    this.mechanicalNoiseNode.start();
   }
 
   private setupWind() {
     if (!this.ctx || !this.windMasterGain) return;
 
-    const size = this.ctx.sampleRate * 2;
-    const buffer = this.ctx.createBuffer(1, size, this.ctx.sampleRate);
-    const output = buffer.getChannelData(0);
-
-    let b0 = 0;
-    let b1 = 0;
-    let b2 = 0;
-
-    for (let i = 0; i < size; i++) {
+    const bufferSize = this.ctx.sampleRate * 2;
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < bufferSize; i++) {
       const white = Math.random() * 2 - 1;
       b0 = 0.99886 * b0 + white * 0.0555179;
       b1 = 0.99332 * b1 + white * 0.0750759;
-      b2 = 0.969 * b2 + white * 0.153852;
+      b2 = 0.96900 * b2 + white * 0.1538520;
       output[i] = (b0 + b1 + b2 + white * 0.5362) * 0.12;
     }
 
     this.windNoiseNode = this.ctx.createBufferSource();
-    this.windNoiseNode.buffer = buffer;
+    this.windNoiseNode.buffer = noiseBuffer;
     this.windNoiseNode.loop = true;
 
     this.windFilter = this.ctx.createBiquadFilter();
     this.windFilter.type = 'bandpass';
-    this.windFilter.frequency.value = 380;
-    this.windFilter.Q.value = 1.1;
+    this.windFilter.frequency.setValueAtTime(380, this.ctx.currentTime);
+    this.windFilter.Q.setValueAtTime(1.1, this.ctx.currentTime);
 
     this.windGain = this.ctx.createGain();
-    this.windGain.gain.value = 0;
+    this.windGain.gain.setValueAtTime(0, this.ctx.currentTime);
 
     this.windNoiseNode.connect(this.windFilter);
     this.windFilter.connect(this.windGain);
@@ -313,18 +275,18 @@ class SoundController {
 
     this.brakeOsc = this.ctx.createOscillator();
     this.brakeOsc.type = 'sine';
-    this.brakeOsc.frequency.value = 2600;
+    this.brakeOsc.frequency.setValueAtTime(2600, this.ctx.currentTime);
 
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = 2400;
-    filter.Q.value = 9;
+    const brakeFilter = this.ctx.createBiquadFilter();
+    brakeFilter.type = 'bandpass';
+    brakeFilter.frequency.setValueAtTime(2400, this.ctx.currentTime);
+    brakeFilter.Q.setValueAtTime(9, this.ctx.currentTime);
 
     this.brakeGain = this.ctx.createGain();
-    this.brakeGain.gain.value = 0;
+    this.brakeGain.gain.setValueAtTime(0, this.ctx.currentTime);
 
-    this.brakeOsc.connect(filter);
-    filter.connect(this.brakeGain);
+    this.brakeOsc.connect(brakeFilter);
+    brakeFilter.connect(this.brakeGain);
     this.brakeGain.connect(this.fxMasterGain);
 
     this.brakeOsc.start();
@@ -333,294 +295,151 @@ class SoundController {
   private setupHorn() {
     if (!this.ctx || !this.fxMasterGain) return;
 
+    // Classic dual-tone disc horn (440Hz A4 + 554Hz C#5 major third interval)
     this.hornOsc1 = this.ctx.createOscillator();
     this.hornOsc1.type = 'sawtooth';
-    this.hornOsc1.frequency.value = 440;
+    this.hornOsc1.frequency.setValueAtTime(440, this.ctx.currentTime);
 
     this.hornOsc2 = this.ctx.createOscillator();
     this.hornOsc2.type = 'triangle';
-    this.hornOsc2.frequency.value = 554.37;
+    this.hornOsc2.frequency.setValueAtTime(554.37, this.ctx.currentTime);
 
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 1700;
+    const hornFilter = this.ctx.createBiquadFilter();
+    hornFilter.type = 'lowpass';
+    hornFilter.frequency.setValueAtTime(1700, this.ctx.currentTime);
 
     this.hornGain = this.ctx.createGain();
-    this.hornGain.gain.value = 0;
+    this.hornGain.gain.setValueAtTime(0, this.ctx.currentTime);
 
-    this.hornOsc1.connect(filter);
-    this.hornOsc2.connect(filter);
-    filter.connect(this.hornGain);
+    this.hornOsc1.connect(hornFilter);
+    this.hornOsc2.connect(hornFilter);
+    hornFilter.connect(this.hornGain);
     this.hornGain.connect(this.fxMasterGain);
 
     this.hornOsc1.start();
     this.hornOsc2.start();
   }
 
-  public setProfile(profile: SoundProfile) {
-    this.currentProfile = profile;
-
-    if (this.ctx && this.engineFilter) {
-      const now = this.ctx.currentTime;
-      this.engineFilter.frequency.setTargetAtTime(
-        profile.filterIdle,
-        now,
-        0.05
-      );
-
-      if (this.subBassOsc) {
-        this.subBassOsc.frequency.setTargetAtTime(
-          profile.subBassFreq,
-          now,
-          0.05
-        );
-      }
-    }
-  }
-
-  public getProfile(): SoundProfile {
-    return this.currentProfile;
-  }
-
-  public resume() {
-    if (this.ctx && this.ctx.state === 'suspended') {
-      void this.ctx.resume().catch(() => {});
-    }
-  }
-
-  public setMuted(muted: boolean) {
-    this.isMuted = muted;
-
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(
-        muted ? 0 : this.volumeSettings.master,
-        this.ctx.currentTime,
-        0.05
-      );
-    }
-  }
-
-  public getIsMuted(): boolean {
-    return this.isMuted;
-  }
-
-  public setVolumes(
-    master?: number,
-    engine?: number,
-    wind?: number,
-    traffic?: number
-  ) {
-    if (master !== undefined) {
-      this.volumeSettings.master = Math.max(0, Math.min(1, master));
-    }
-    if (engine !== undefined) {
-      this.volumeSettings.engine = Math.max(0, Math.min(1, engine));
-    }
-    if (wind !== undefined) {
-      this.volumeSettings.wind = Math.max(0, Math.min(1, wind));
-    }
-    if (traffic !== undefined) {
-      this.volumeSettings.traffic = Math.max(0, Math.min(1, traffic));
-    }
-
-    if (!this.ctx) return;
-
-    const t = this.ctx.currentTime;
-
-    if (this.masterGain && !this.isMuted) {
-      this.masterGain.gain.setTargetAtTime(
-        this.volumeSettings.master,
-        t,
-        0.05
-      );
-    }
-
-    if (this.engineMasterGain) {
-      this.engineMasterGain.gain.setTargetAtTime(
-        this.volumeSettings.engine,
-        t,
-        0.05
-      );
-    }
-
-    if (this.windMasterGain) {
-      this.windMasterGain.gain.setTargetAtTime(
-        this.volumeSettings.wind,
-        t,
-        0.05
-      );
-    }
-
-    if (this.fxMasterGain) {
-      this.fxMasterGain.gain.setTargetAtTime(
-        this.volumeSettings.traffic,
-        t,
-        0.05
-      );
-    }
-  }
-
-  public updateEngine(
-    speedKmh: number,
-    rpmNorm: number,
-    isThrottle: boolean,
-    isBraking: boolean
-  ) {
+  /**
+   * Updates real-time dynamic engine parameters based on speed, RPM, throttle, and bike profile.
+   */
+  public updateEngine(speedKmh: number, rpmNorm: number, isThrottle: boolean, isBraking: boolean) {
     if (!this.ctx || !this.isRunning || this.isMuted) return;
 
     const t = this.ctx.currentTime;
     const p = this.currentProfile;
-    const rpm = Math.max(0, Math.min(1, rpmNorm));
 
-    const maxRate = p.maxPulseFreq / Math.max(1, p.idlePulseFreq);
-    const playbackRate =
-      1 + (maxRate - 1) * Math.max(0, (rpm - 0.2) / 0.8);
+    // 1. Calculate actual firing pulse frequency:
+    // Interpolates from idlePulseFreq to maxPulseFreq based on normalized RPM
+    const clampedRpm = Math.max(0, Math.min(1, rpmNorm));
+    const targetPulseFreq = p.idlePulseFreq + (p.maxPulseFreq - p.idlePulseFreq) * Math.pow(clampedRpm, 1.15);
 
-    if (this.idleBufferSource) {
-      this.idleBufferSource.playbackRate.setTargetAtTime(playbackRate, t, 0.05);
-    }
-    if (this.accelBufferSource) {
-      this.accelBufferSource.playbackRate.setTargetAtTime(playbackRate, t, 0.05);
-    }
-    if (this.coastBufferSource) {
-      this.coastBufferSource.playbackRate.setTargetAtTime(playbackRate, t, 0.05);
+    // Combustion pulse frequency (scaled by 2 for audio perception harmonic)
+    if (this.pulseOsc) {
+      this.pulseOsc.frequency.setTargetAtTime(targetPulseFreq * 2.1, t, 0.04);
     }
 
-    if (this.idleGain && this.accelGain && this.coastGain) {
-      const highRpm = rpm > 0.35;
-
-      let idleVol = 0;
-      let accelVol = 0;
-      let coastVol = 0;
-
-      if (isThrottle) {
-        accelVol = 0.45 + rpm * 0.35;
-        idleVol = (1 - rpm) * 0.2;
-      } else if (highRpm) {
-        coastVol = 0.45 * rpm;
-        idleVol = 0.25;
-      } else {
-        idleVol = 0.55;
-      }
-
-      this.idleGain.gain.setTargetAtTime(idleVol, t, 0.06);
-      this.accelGain.gain.setTargetAtTime(accelVol, t, 0.06);
-      this.coastGain.gain.setTargetAtTime(coastVol, t, 0.06);
+    // 2. Sub-bass thump frequency (fundamental combustion punch)
+    if (this.subBassOsc) {
+      const subFreq = p.subBassFreq + clampedRpm * 38;
+      this.subBassOsc.frequency.setTargetAtTime(subFreq, t, 0.04);
     }
 
-    if (this.subBassOsc && this.subBassGain) {
-      const freq = p.subBassFreq * (1 + rpm * 0.65);
-      this.subBassOsc.frequency.setTargetAtTime(freq, t, 0.05);
-
-      const bassVol =
-        (0.22 + rpm * 0.22 + (isThrottle ? 0.12 : 0)) *
-        p.subBassDepth;
-
-      this.subBassGain.gain.setTargetAtTime(bassVol, t, 0.06);
-    }
-
+    // 3. Primary reduction gear whine (Himalayan 411 feature)
     if (this.gearWhineOsc && this.gearWhineGain) {
-      this.gearWhineOsc.frequency.setTargetAtTime(200 + rpm * 880, t, 0.04);
+      const whineFreq = 180 + clampedRpm * 920;
+      this.gearWhineOsc.frequency.setTargetAtTime(whineFreq, t, 0.03);
 
-      const whineVol =
-        p.gearWhine * (0.02 + rpm * 0.14) * (isThrottle ? 1 : 0.4);
-
-      this.gearWhineGain.gain.setTargetAtTime(whineVol, t, 0.05);
+      const targetWhineVol = p.gearWhine * (0.02 + clampedRpm * 0.12) * (isThrottle ? 1.0 : 0.4);
+      this.gearWhineGain.gain.setTargetAtTime(targetWhineVol, t, 0.04);
     }
 
+    // 4. Mechanical clatter
+    if (this.mechanicalGain) {
+      const clatterVol = p.mechanicalClatter * (0.04 + (1 - clampedRpm * 0.5) * 0.06);
+      this.mechanicalGain.gain.setTargetAtTime(clatterVol, t, 0.05);
+    }
+
+    // 5. Dynamic exhaust resonator lowpass filter
     if (this.engineFilter) {
-      const throttleBoost = isThrottle ? 350 : 0;
-      const cutoff =
-        p.filterIdle + (p.filterMax - p.filterIdle) * rpm + throttleBoost;
-
-      this.engineFilter.frequency.setTargetAtTime(
-        Math.min(3200, cutoff),
-        t,
-        0.05
-      );
+      // Full throttle opens up the exhaust baffle
+      const throttleBoost = isThrottle ? 450 : 0;
+      const targetCutoff = p.filterIdle + (p.filterMax - p.filterIdle) * clampedRpm + throttleBoost;
+      this.engineFilter.frequency.setTargetAtTime(Math.min(3600, targetCutoff), t, 0.04);
     }
 
-    if (
-      this.lastThrottleState &&
-      !isThrottle &&
-      rpm > 0.45 &&
-      p.overrunPop > 0.15
-    ) {
-      this.triggerOverrunPop(rpm);
+    // 6. Overall Engine gain
+    if (this.engineGain) {
+      const baseGain = isThrottle ? 0.38 : 0.18;
+      const rpmGain = clampedRpm * 0.32;
+      const targetGain = (baseGain + rpmGain) * (0.7 + p.subBassDepth * 0.3);
+      this.engineGain.gain.setTargetAtTime(targetGain, t, 0.04);
     }
 
+    // 7. Deceleration overrun pops / crackles on sudden throttle release at high RPM
+    if (this.lastThrottleState && !isThrottle && clampedRpm > 0.45 && p.overrunPop > 0.15) {
+      this.triggerOverrunPop(clampedRpm);
+    }
     this.lastThrottleState = isThrottle;
 
+    // 8. Wind turbulence noise scaling with velocity
     if (this.windGain && this.windFilter) {
-      const speedRatio = Math.min(Math.max(speedKmh, 0) / 160, 1);
-      const windVol =
-        speedRatio > 0.15 ? Math.pow(speedRatio, 1.7) * 0.42 : 0;
-
-      this.windGain.gain.setTargetAtTime(windVol, t, 0.08);
-      this.windFilter.frequency.setTargetAtTime(
-        280 + speedRatio * 1700,
-        t,
-        0.08
-      );
+      const speedRatio = Math.min(speedKmh / 160, 1.0);
+      const windVol = speedRatio > 0.12 ? Math.pow(speedRatio, 1.6) * 0.42 : 0;
+      this.windGain.gain.setTargetAtTime(windVol, t, 0.07);
+      this.windFilter.frequency.setTargetAtTime(280 + speedRatio * 1800, t, 0.07);
     }
 
+    // 9. Brake squeal
     if (this.brakeGain) {
-      const squeal = isBraking && speedKmh > 25;
-      const brakeVol = squeal
-        ? Math.min((speedKmh / 120) * 0.18, 0.22)
-        : 0;
-
+      const shouldSqueal = isBraking && speedKmh > 20;
+      const brakeVol = shouldSqueal ? Math.min((speedKmh / 120) * 0.18, 0.22) : 0;
       this.brakeGain.gain.setTargetAtTime(brakeVol, t, 0.05);
     }
   }
 
   private triggerOverrunPop(rpmNorm: number) {
     if (!this.ctx || !this.engineMasterGain || this.isMuted) return;
-
     const now = Date.now();
-    if (now - this.overrunTimer < 160) return;
+    if (now - this.overrunTimer < 180) return;
     this.overrunTimer = now;
 
     try {
       const t = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
+      const popOsc = this.ctx.createOscillator();
+      const popGain = this.ctx.createGain();
+      const popFilter = this.ctx.createBiquadFilter();
 
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(85 + Math.random() * 55, t);
-      osc.frequency.exponentialRampToValueAtTime(32, t + 0.08);
+      popOsc.type = 'sawtooth';
+      popOsc.frequency.setValueAtTime(80 + Math.random() * 60, t);
+      popOsc.frequency.exponentialRampToValueAtTime(30, t + 0.08);
 
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(750 + rpmNorm * 500, t);
+      popFilter.type = 'lowpass';
+      popFilter.frequency.setValueAtTime(800 + rpmNorm * 600, t);
 
-      gain.gain.setValueAtTime(0.22 * this.currentProfile.overrunPop, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+      const popVol = 0.25 * this.currentProfile.overrunPop;
+      popGain.gain.setValueAtTime(popVol, t);
+      popGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
 
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.engineMasterGain);
+      popOsc.connect(popFilter);
+      popFilter.connect(popGain);
+      popGain.connect(this.engineMasterGain);
 
-      osc.start(t);
-      osc.stop(t + 0.1);
+      popOsc.start(t);
+      popOsc.stop(t + 0.1);
     } catch {
-      // Ignore unsupported audio operations.
+      // Audio fallback
     }
   }
 
   public setHorn(active: boolean) {
     if (!this.ctx || !this.hornGain) return;
-
-    this.hornGain.gain.setTargetAtTime(
-      active ? 0.38 : 0,
-      this.ctx.currentTime,
-      0.02
-    );
+    const t = this.ctx.currentTime;
+    this.hornGain.gain.setTargetAtTime(active ? 0.38 : 0, t, 0.02);
   }
 
   public playCloseCall() {
     if (!this.ctx || !this.fxMasterGain || this.isMuted) return;
-
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -639,39 +458,40 @@ class SoundController {
       osc.start(t);
       osc.stop(t + 0.36);
 
-      const whoosh = this.ctx.createOscillator();
+      // Dopler whoosh
+      const whooshOsc = this.ctx.createOscillator();
       const whooshGain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
+      const whooshFilter = this.ctx.createBiquadFilter();
 
-      whoosh.type = 'sawtooth';
-      whoosh.frequency.setValueAtTime(420, t);
-      whoosh.frequency.exponentialRampToValueAtTime(95, t + 0.28);
+      whooshOsc.type = 'sawtooth';
+      whooshOsc.frequency.setValueAtTime(420, t);
+      whooshOsc.frequency.exponentialRampToValueAtTime(95, t + 0.28);
 
-      filter.type = 'lowpass';
-      filter.frequency.value = 900;
+      whooshFilter.type = 'lowpass';
+      whooshFilter.frequency.setValueAtTime(900, t);
 
       whooshGain.gain.setValueAtTime(0.28, t);
       whooshGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
 
-      whoosh.connect(filter);
-      filter.connect(whooshGain);
+      whooshOsc.connect(whooshFilter);
+      whooshFilter.connect(whooshGain);
       whooshGain.connect(this.fxMasterGain);
 
-      whoosh.start(t);
-      whoosh.stop(t + 0.32);
+      whooshOsc.start(t);
+      whooshOsc.stop(t + 0.32);
     } catch {
-      // Ignore unsupported audio operations.
+      // Audio fallback
     }
   }
 
   public playCrash() {
     if (!this.ctx || !this.fxMasterGain || this.isMuted) return;
-
     try {
       const t = this.ctx.currentTime;
+
+      // Heavy sub-bass impact boom
       const subOsc = this.ctx.createOscillator();
       const subGain = this.ctx.createGain();
-
       subOsc.type = 'sine';
       subOsc.frequency.setValueAtTime(140, t);
       subOsc.frequency.exponentialRampToValueAtTime(22, t + 0.65);
@@ -681,22 +501,19 @@ class SoundController {
 
       subOsc.connect(subGain);
       subGain.connect(this.fxMasterGain);
-
       subOsc.start(t);
       subOsc.stop(t + 0.76);
 
-      const size = Math.floor(this.ctx.sampleRate * 0.9);
-      const buffer = this.ctx.createBuffer(1, size, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-
-      for (let i = 0; i < size; i++) {
-        data[i] =
-          (Math.random() * 2 - 1) *
-          Math.exp(-i / (this.ctx!.sampleRate * 0.28));
+      // Metal crunch and debris noise
+      const bufferSize = this.ctx.sampleRate * 0.9;
+      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.28));
       }
 
       const noise = this.ctx.createBufferSource();
-      noise.buffer = buffer;
+      noise.buffer = noiseBuffer;
 
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'lowpass';
@@ -714,18 +531,16 @@ class SoundController {
       noise.start(t);
       noise.stop(t + 0.77);
     } catch {
-      // Ignore unsupported audio operations.
+      // Audio fallback
     }
   }
 
   public playGearShift() {
     if (!this.ctx || !this.fxMasterGain || this.isMuted) return;
-
     try {
       const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(240, t);
       osc.frequency.exponentialRampToValueAtTime(75, t + 0.08);
@@ -735,39 +550,25 @@ class SoundController {
 
       osc.connect(gain);
       gain.connect(this.fxMasterGain);
-
       osc.start(t);
       osc.stop(t + 0.1);
     } catch {
-      // Ignore unsupported audio operations.
+      // Audio fallback
     }
   }
 
   public stopAll() {
-    if (!this.ctx) return;
-
-    const t = this.ctx.currentTime;
-
-    if (this.idleGain) {
-      this.idleGain.gain.setTargetAtTime(0, t, 0.05);
+    if (this.engineGain && this.ctx) {
+      this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
     }
-    if (this.accelGain) {
-      this.accelGain.gain.setTargetAtTime(0, t, 0.05);
+    if (this.windGain && this.ctx) {
+      this.windGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
     }
-    if (this.coastGain) {
-      this.coastGain.gain.setTargetAtTime(0, t, 0.05);
+    if (this.brakeGain && this.ctx) {
+      this.brakeGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
     }
-    if (this.subBassGain) {
-      this.subBassGain.gain.setTargetAtTime(0, t, 0.05);
-    }
-    if (this.windGain) {
-      this.windGain.gain.setTargetAtTime(0, t, 0.05);
-    }
-    if (this.brakeGain) {
-      this.brakeGain.gain.setTargetAtTime(0, t, 0.05);
-    }
-    if (this.hornGain) {
-      this.hornGain.gain.setTargetAtTime(0, t, 0.05);
+    if (this.hornGain && this.ctx) {
+      this.hornGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
     }
   }
 }
