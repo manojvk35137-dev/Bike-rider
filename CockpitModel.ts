@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { MotorcycleConfig } from '../motorcycles';
-import { createMirrorReflectionTexture } from '../textures';
+import { MotorcycleConfig } from './motorcycles';
+import { createMirrorReflectionTexture } from './textures';
 
 export class CockpitModel {
   public group: THREE.Group;
