@@ -1,13 +1,14 @@
+
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { sounds } from '../audio/SoundEffects';
+import { sounds } from './src/audio/SoundEffects';
 import { GAME_CONSTANTS, GameMode, GameStats } from './constants';
-import { CockpitModel } from './models/CockpitModel';
-import { SceneryManager } from './models/Scenery';
+import { CockpitModel } from './CockpitModel';
+import { SceneryManager } from './Scenery';
 import { MOTORCYCLE_REGISTRY, MotorcycleConfig } from './motorcycles';
 import { TrafficManager } from './TrafficManager';
-
 import { createSkyDomeTexture } from './textures';
+
 
 export interface InputState {
   steerLeft: boolean;
