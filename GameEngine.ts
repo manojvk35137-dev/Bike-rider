@@ -1,4 +1,3 @@
-
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { sounds } from './src/audio/SoundEffects';
@@ -381,6 +380,7 @@ export class GameEngine {
     this.playerX = 0;
     this.playerZ = 0;
     this.speedKmh = 0;
+    this.targetSpeedKmh = 0;
     this.distanceMeters = 0;
     this.score = 0;
     this.closeCallsCount = 0;
@@ -495,7 +495,7 @@ export class GameEngine {
 
     const speedRatio = Math.max(
       0.18,
-      Math.min(1.0, safeSpeed / bike.topSpeedKmh)
+      Math.min(1.0, safeSpeed / Math.max(1, bike.topSpeedKmh))
     );
 
     this.playerX += steerDir * bike.steerRate * speedRatio * delta;
@@ -511,19 +511,19 @@ export class GameEngine {
     this.currentLean = THREE.MathUtils.damp(
       this.currentLean,
       this.targetLean,
-      10,
+      8,
       delta
     );
 
-    const topSpeed = this.inputs.boost
-      ? bike.topSpeedKmh * 1.12
-      : bike.topSpeedKmh;
+    // No boost multiplier: use the motorcycle's normal configured top speed.
+    const topSpeed = Math.max(1, bike.topSpeedKmh);
 
+    // Smooth throttle and brake response.
     const targetThrottle = this.inputs.throttle ? 1 : 0;
     this.throttleIntensity = THREE.MathUtils.damp(
       this.throttleIntensity,
       targetThrottle,
-      5.5,
+      4.2,
       delta
     );
 
@@ -531,25 +531,47 @@ export class GameEngine {
     this.brakeIntensity = THREE.MathUtils.damp(
       this.brakeIntensity,
       targetBrake,
-      8,
+      7,
       delta
     );
 
+    const currentSpeed = Math.max(
+      0,
+      Number.isFinite(this.speedKmh) ? this.speedKmh : 0
+    );
+
     if (this.brakeIntensity > 0.05) {
+      // Firm but progressive braking.
       const brakeForce = bike.brakeRate * this.brakeIntensity;
-      this.speedKmh = Math.max(0, safeSpeed - brakeForce * delta);
+      this.speedKmh = Math.max(
+        0,
+        currentSpeed - brakeForce * delta
+      );
     } else if (this.throttleIntensity > 0.02) {
-      const normalizedSpeed = Math.min(1, safeSpeed / topSpeed);
+      // Keep useful acceleration at medium/high speeds without a boost.
+      const normalizedSpeed = Math.min(1, currentSpeed / topSpeed);
       const powerFactor = Math.max(
-        0.12,
-        1 - Math.pow(normalizedSpeed, 1.6)
+        0.24,
+        1 - Math.pow(normalizedSpeed, 1.35)
       );
 
-      const accel = bike.accelRate * this.throttleIntensity * powerFactor;
-      this.speedKmh = Math.min(topSpeed, safeSpeed + accel * delta);
+      const acceleration =
+        bike.accelRate *
+        1.3 *
+        this.throttleIntensity *
+        powerFactor;
+
+      this.speedKmh = Math.min(
+        topSpeed,
+        currentSpeed + acceleration * delta
+      );
     } else {
-      const coastDrag = 0.8 + (safeSpeed / 100) * 1.2;
-      this.speedKmh = Math.max(0, safeSpeed - coastDrag * delta);
+      // Gentle coasting: releasing throttle should not drop speed abruptly.
+      const coastDrag = 0.25 + (currentSpeed / 100) * 0.35;
+      this.speedKmh = Math.max(
+        0,
+        currentSpeed - coastDrag * delta
+      );
     }
 
     if (!Number.isFinite(this.speedKmh) || this.speedKmh < 0) {
