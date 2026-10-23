@@ -18,6 +18,24 @@ export interface InputState {
   boost: boolean;
 }
 
+export interface RemotePlayerState {
+  playerId: string;
+  x: number;
+  z: number;
+  rotation?: number;
+  speed?: number;
+  bikeId?: string;
+}
+
+interface RemoteBike {
+  group: THREE.Group;
+  targetX: number;
+  targetZ: number;
+  targetRotation: number;
+  speed: number;
+  bikeId: string;
+}
+
 export class GameEngine {
   public container: HTMLElement;
   public renderer: THREE.WebGLRenderer;
@@ -25,36 +43,31 @@ export class GameEngine {
   public camera: THREE.PerspectiveCamera;
   private skyDome!: THREE.Mesh;
 
-  // Selected motorcycle configuration
   public currentBike: MotorcycleConfig = MOTORCYCLE_REGISTRY[0];
 
-  // Game submodules
   public cockpit: CockpitModel;
   public scenery: SceneryManager;
   public traffic: TrafficManager;
 
-  // Player state
-  public playerX: number = 0;
-  public playerZ: number = 0;
-  public speedKmh: number = 0;
-  public targetSpeedKmh: number = 0;
-  public currentLean: number = 0;
-  public targetLean: number = 0;
-  public gear: number = 1;
-  public rpmNorm: number = 0.2;
-  public distanceMeters: number = 0;
-  public score: number = 0;
-  public closeCallsCount: number = 0;
-  public comboStreak: number = 0;
-  public maxSpeedReached: number = 0;
-  public timeLeft: number = 75;
+  public playerX = 0;
+  public playerZ = 0;
+  public speedKmh = 0;
+  public targetSpeedKmh = 0;
+  public currentLean = 0;
+  public targetLean = 0;
+  public gear = 1;
+  public rpmNorm = 0.2;
+  public distanceMeters = 0;
+  public score = 0;
+  public closeCallsCount = 0;
+  public comboStreak = 0;
+  public maxSpeedReached = 0;
+  public timeLeft = 75;
 
-  // Crash animation state - original design preserved
-  public isCrashing: boolean = false;
-  private crashTimer: number = 0;
-  private crashAngularVel: THREE.Vector3 = new THREE.Vector3();
+  public isCrashing = false;
+  private crashTimer = 0;
+  private crashAngularVel = new THREE.Vector3();
 
-  // Control inputs
   public inputs: InputState = {
     steerLeft: false,
     steerRight: false,
@@ -64,18 +77,20 @@ export class GameEngine {
     boost: false,
   };
 
-  // State flags
-  public isRunning: boolean = false;
-  public isPaused: boolean = false;
-  public isGameOver: boolean = false;
+  public isRunning = false;
+  public isPaused = false;
+  public isGameOver = false;
   public mode: GameMode = 'one-way';
 
-  // Loop & timing
-  private clock: THREE.Clock;
-  private animFrameId: number = 0;
-  private isSoftwareGl: boolean = false;
+  public throttleIntensity = 0;
+  public brakeIntensity = 0;
 
-  // Callbacks to UI
+  private clock: THREE.Clock;
+  private animFrameId = 0;
+  private isSoftwareGl = false;
+
+  private remoteBikes = new Map<string, RemoteBike>();
+
   public onStatsUpdate?: (stats: GameStats) => void;
   public onGameOver?: (finalStats: GameStats) => void;
 
@@ -86,7 +101,6 @@ export class GameEngine {
     this.container = container;
     this.currentBike = initialBike;
 
-    // Detect software WebGL
     this.isSoftwareGl = (() => {
       const gl = document.createElement('canvas').getContext('webgl2');
       if (!gl) return true;
@@ -95,7 +109,6 @@ export class GameEngine {
       const param = ext
         ? ext.UNMASKED_RENDERER_WEBGL
         : gl.RENDERER;
-
       const gpu = String(gl.getParameter(param));
 
       gl.getExtension('WEBGL_lose_context')?.loseContext();
@@ -103,7 +116,6 @@ export class GameEngine {
       return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
     })();
 
-    // Initialize Three.js renderer
     this.renderer = new THREE.WebGLRenderer({
       antialias: !this.isSoftwareGl,
       powerPreference: 'high-performance',
@@ -115,25 +127,17 @@ export class GameEngine {
     this.renderer.toneMappingExposure = 1.18;
 
     this.renderer.setPixelRatio(
-      this.isSoftwareGl
-        ? 1
-        : Math.min(window.devicePixelRatio, 2)
+      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
     );
 
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.setSize(
-      container.clientWidth,
-      container.clientHeight
-    );
-
+    this.renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this.renderer.domElement);
 
-    // Scene and atmospheric horizon fog
     this.scene = new THREE.Scene();
 
     const horizonFogColor = new THREE.Color(0x8da7bf);
-
     this.scene.background = horizonFogColor;
     this.scene.fog = new THREE.Fog(
       horizonFogColor,
@@ -141,9 +145,7 @@ export class GameEngine {
       GAME_CONSTANTS.FOG_FAR
     );
 
-    // Panoramic sky dome
     const skyGeo = new THREE.SphereGeometry(720, 32, 24);
-
     const skyMat = new THREE.MeshBasicMaterial({
       map: createSkyDomeTexture(),
       side: THREE.BackSide,
@@ -153,16 +155,9 @@ export class GameEngine {
     this.skyDome = new THREE.Mesh(skyGeo, skyMat);
     this.scene.add(this.skyDome);
 
-    // Camera setup
-    const aspect =
-      container.clientWidth / container.clientHeight;
+    const aspect = container.clientWidth / container.clientHeight;
 
-    this.camera = new THREE.PerspectiveCamera(
-      62,
-      aspect,
-      0.05,
-      900
-    );
+    this.camera = new THREE.PerspectiveCamera(62, aspect, 0.05, 900);
 
     this.camera.position.set(
       0,
@@ -170,28 +165,16 @@ export class GameEngine {
       GAME_CONSTANTS.CAMERA_Z
     );
 
-    this.camera.rotation.set(
-      GAME_CONSTANTS.CAMERA_BASE_PITCH,
-      0,
-      0
-    );
+    this.camera.rotation.set(GAME_CONSTANTS.CAMERA_BASE_PITCH, 0, 0);
 
-    // Studio environment reflections
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-
     this.scene.environment = pmrem.fromScene(
       new RoomEnvironment(),
       0.04
     ).texture;
-
     pmrem.dispose();
 
-    // Lighting
-    const sunLight = new THREE.DirectionalLight(
-      0xfff1dc,
-      2.4
-    );
-
+    const sunLight = new THREE.DirectionalLight(0xfff1dc, 2.4);
     sunLight.position.set(35, 75, -50);
     sunLight.castShadow = !this.isSoftwareGl;
 
@@ -209,45 +192,24 @@ export class GameEngine {
     }
 
     this.scene.add(sunLight);
+    this.scene.add(new THREE.HemisphereLight(0x7ea8cc, 0x223625, 0.95));
 
-    const hemiLight = new THREE.HemisphereLight(
-      0x7ea8cc,
-      0x223625,
-      0.95
-    );
-
-    this.scene.add(hemiLight);
-
-    // Cockpit
-    const maxAnisotropy =
-      this.renderer.capabilities.getMaxAnisotropy();
+    const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
     this.cockpit = new CockpitModel(this.currentBike);
-
     this.camera.add(this.cockpit.group);
     this.scene.add(this.camera);
 
-    this.scenery = new SceneryManager(
-      this.scene,
-      maxAnisotropy
-    );
-
-    this.traffic = new TrafficManager(
-      this.scene,
-      this.mode
-    );
+    this.scenery = new SceneryManager(this.scene, maxAnisotropy);
+    this.traffic = new TrafficManager(this.scene, this.mode);
 
     this.traffic.onCollision = () => this.handleCrash();
-
-    this.traffic.onCloseCall = (info) =>
-      this.handleCloseCall(info);
+    this.traffic.onCloseCall = (info) => this.handleCloseCall(info);
 
     this.clock = new THREE.Clock();
-
     sounds.setProfile(this.currentBike.sound);
 
     window.addEventListener('resize', this.onResize);
-
     this.updateCameraPerspective();
   }
 
@@ -258,9 +220,153 @@ export class GameEngine {
     this.updateCameraPerspective();
   }
 
-  // Dynamic throttle and brake intensity
-  public throttleIntensity: number = 0;
-  public brakeIntensity: number = 0;
+  private createRemoteBike(color = 0x2563eb): THREE.Group {
+    const group = new THREE.Group();
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.32, 1.25),
+      new THREE.MeshStandardMaterial({
+        color,
+        metalness: 0.35,
+        roughness: 0.5,
+      })
+    );
+    body.position.y = 0.65;
+    group.add(body);
+
+    const seat = new THREE.Mesh(
+      new THREE.BoxGeometry(0.34, 0.12, 0.48),
+      new THREE.MeshStandardMaterial({
+        color: 0x202020,
+        roughness: 0.85,
+      })
+    );
+    seat.position.set(0, 0.88, 0.05);
+    group.add(seat);
+
+    const wheelGeometry = new THREE.CylinderGeometry(0.29, 0.29, 0.13, 16);
+    const wheelMaterial = new THREE.MeshStandardMaterial({
+      color: 0x151515,
+      roughness: 0.9,
+    });
+
+    for (const z of [-0.43, 0.48]) {
+      const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(0, 0.3, z);
+      group.add(wheel);
+    }
+
+    const handlebar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.07, 0.07),
+      new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.7 })
+    );
+    handlebar.position.set(0, 0.95, -0.18);
+    group.add(handlebar);
+
+    group.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        object.castShadow = true;
+        object.receiveShadow = true;
+      }
+    });
+
+    return group;
+  }
+
+  public updateRemotePlayer(state: RemotePlayerState) {
+    if (
+      !state ||
+      typeof state.playerId !== 'string' ||
+      !state.playerId ||
+      state.playerId.length > 100 ||
+      !Number.isFinite(state.x) ||
+      !Number.isFinite(state.z)
+    ) {
+      return;
+    }
+
+    let remote = this.remoteBikes.get(state.playerId);
+
+    if (!remote) {
+      const group = this.createRemoteBike();
+      this.scene.add(group);
+
+      remote = {
+        group,
+        targetX: state.x,
+        targetZ: state.z,
+        targetRotation: 0,
+        speed: 0,
+        bikeId: '',
+      };
+
+      this.remoteBikes.set(state.playerId, remote);
+    }
+
+    remote.targetX = THREE.MathUtils.clamp(state.x, -20, 20);
+    remote.targetZ = state.z;
+    remote.targetRotation = Number.isFinite(state.rotation)
+      ? state.rotation!
+      : 0;
+    remote.speed = Number.isFinite(state.speed)
+      ? THREE.MathUtils.clamp(state.speed!, 0, 300)
+      : 0;
+    remote.bikeId = String(state.bikeId || '').slice(0, 40);
+  }
+
+  public removeRemotePlayer(playerId: string) {
+    const remote = this.remoteBikes.get(playerId);
+    if (!remote) return;
+
+    this.scene.remove(remote.group);
+
+    remote.group.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+
+      object.geometry.dispose();
+
+      const material = object.material;
+      if (Array.isArray(material)) {
+        material.forEach((item) => item.dispose());
+      } else {
+        material.dispose();
+      }
+    });
+
+    this.remoteBikes.delete(playerId);
+  }
+
+  public clearRemotePlayers() {
+    for (const playerId of [...this.remoteBikes.keys()]) {
+      this.removeRemotePlayer(playerId);
+    }
+  }
+
+  private updateRemoteBikes(delta: number) {
+    for (const remote of this.remoteBikes.values()) {
+      remote.group.position.x = THREE.MathUtils.damp(
+        remote.group.position.x,
+        remote.targetX,
+        8,
+        delta
+      );
+
+      remote.group.position.z = THREE.MathUtils.damp(
+        remote.group.position.z,
+        remote.targetZ,
+        8,
+        delta
+      );
+
+      remote.group.rotation.y = THREE.MathUtils.damp(
+        remote.group.rotation.y,
+        remote.targetRotation,
+        8,
+        delta
+      );
+    }
+  }
 
   public startGame(mode: GameMode = 'one-way') {
     this.mode = mode;
@@ -280,14 +386,12 @@ export class GameEngine {
     this.closeCallsCount = 0;
     this.comboStreak = 0;
     this.maxSpeedReached = 0;
-
     this.timeLeft = mode === 'time-rush' ? 75 : 9999;
 
     this.gear = 1;
     this.rpmNorm = 0.2;
     this.currentLean = 0;
     this.targetLean = 0;
-
     this.throttleIntensity = 0;
     this.brakeIntensity = 0;
 
@@ -296,25 +400,14 @@ export class GameEngine {
       GAME_CONSTANTS.CAMERA_HEIGHT,
       GAME_CONSTANTS.CAMERA_Z
     );
-
-    this.camera.rotation.set(
-      GAME_CONSTANTS.CAMERA_BASE_PITCH,
-      0,
-      0
-    );
+    this.camera.rotation.set(GAME_CONSTANTS.CAMERA_BASE_PITCH, 0, 0);
 
     this.updateCameraPerspective();
-
     this.scenery.reset(this.playerZ);
     this.traffic.reset(this.playerZ, mode);
+    this.clearRemotePlayers();
 
-    if (this.skyDome) {
-      this.skyDome.position.set(
-        this.camera.position.x,
-        0,
-        this.playerZ
-      );
-    }
+    this.skyDome.position.set(this.camera.position.x, 0, this.playerZ);
 
     this.isRunning = true;
     this.clock.start();
@@ -334,7 +427,6 @@ export class GameEngine {
     sounds.resume();
   }
 
-  // Original crash behaviour preserved
   private handleCrash() {
     if (this.isCrashing || this.isGameOver) return;
 
@@ -351,15 +443,11 @@ export class GameEngine {
     sounds.stopAll();
   }
 
-  private handleCloseCall(
-    info: { points: number; speedKmh: number }
-  ) {
+  private handleCloseCall(info: { points: number; speedKmh: number }) {
     this.closeCallsCount++;
     this.comboStreak++;
 
-    const bonus =
-      info.points * Math.min(this.comboStreak, 5);
-
+    const bonus = info.points * Math.min(this.comboStreak, 5);
     this.score += bonus;
 
     if (this.mode === 'time-rush') {
@@ -368,14 +456,9 @@ export class GameEngine {
 
     sounds.playCloseCall();
 
-    if (this.onStatsUpdate) {
-      this.onStatsUpdate(
-        this.getStatsSnapshot(
-          `CLOSE CALL! +${bonus}`,
-          bonus
-        )
-      );
-    }
+    this.onStatsUpdate?.(
+      this.getStatsSnapshot(`CLOSE CALL! +${bonus}`, bonus)
+    );
   }
 
   private tick = () => {
@@ -390,6 +473,8 @@ export class GameEngine {
       } else {
         this.updateGameplay(delta);
       }
+
+      this.updateRemoteBikes(delta);
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -397,23 +482,15 @@ export class GameEngine {
 
   private updateGameplay(delta: number) {
     const bike = this.currentBike;
+    const { GUARDRAIL_OFFSET, MAX_LEAN_ANGLE } = GAME_CONSTANTS;
 
-    const {
-      GUARDRAIL_OFFSET,
-      MAX_LEAN_ANGLE,
-    } = GAME_CONSTANTS;
-
-    // 1. Steering and lateral movement
     let steerDir = 0;
-
     if (this.inputs.steerLeft) steerDir -= 1;
     if (this.inputs.steerRight) steerDir += 1;
 
     const safeSpeed = Math.max(
       0,
-      Number.isFinite(this.speedKmh)
-        ? this.speedKmh
-        : 0
+      Number.isFinite(this.speedKmh) ? this.speedKmh : 0
     );
 
     const speedRatio = Math.max(
@@ -421,26 +498,16 @@ export class GameEngine {
       Math.min(1.0, safeSpeed / bike.topSpeedKmh)
     );
 
-    this.playerX +=
-      steerDir * bike.steerRate * speedRatio * delta;
+    this.playerX += steerDir * bike.steerRate * speedRatio * delta;
 
-    // Guardrail friction: reduced speed loss only
     const maxBoundX = GUARDRAIL_OFFSET - 0.75;
 
     if (Math.abs(this.playerX) > maxBoundX) {
-      this.playerX =
-        Math.sign(this.playerX) * maxBoundX;
-
-      // FIX: reduced guardrail slowdown
-      this.speedKmh = Math.max(
-        0,
-        safeSpeed - 3 * delta
-      );
+      this.playerX = Math.sign(this.playerX) * maxBoundX;
+      this.speedKmh = Math.max(0, safeSpeed - 3 * delta);
     }
 
-    // Leaning
     this.targetLean = -steerDir * MAX_LEAN_ANGLE;
-
     this.currentLean = THREE.MathUtils.damp(
       this.currentLean,
       this.targetLean,
@@ -448,14 +515,11 @@ export class GameEngine {
       delta
     );
 
-    // 2. Throttle, braking and coasting
     const topSpeed = this.inputs.boost
       ? bike.topSpeedKmh * 1.12
       : bike.topSpeedKmh;
 
-    const targetThrottle =
-      this.inputs.throttle ? 1.0 : 0.0;
-
+    const targetThrottle = this.inputs.throttle ? 1 : 0;
     this.throttleIntensity = THREE.MathUtils.damp(
       this.throttleIntensity,
       targetThrottle,
@@ -463,82 +527,48 @@ export class GameEngine {
       delta
     );
 
-    const targetBrake =
-      this.inputs.brake ? 1.0 : 0.0;
-
+    const targetBrake = this.inputs.brake ? 1 : 0;
     this.brakeIntensity = THREE.MathUtils.damp(
       this.brakeIntensity,
       targetBrake,
-      8.0,
+      8,
       delta
     );
 
     if (this.brakeIntensity > 0.05) {
-      // Original progressive braking preserved
-      const brakeForce =
-        bike.brakeRate * this.brakeIntensity;
-
-      this.speedKmh = Math.max(
-        0,
-        safeSpeed - brakeForce * delta
-      );
+      const brakeForce = bike.brakeRate * this.brakeIntensity;
+      this.speedKmh = Math.max(0, safeSpeed - brakeForce * delta);
     } else if (this.throttleIntensity > 0.02) {
-      // Original acceleration preserved
-      const normalizedSpeed = Math.min(
-        1.0,
-        safeSpeed / topSpeed
-      );
-
+      const normalizedSpeed = Math.min(1, safeSpeed / topSpeed);
       const powerFactor = Math.max(
         0.12,
-        1.0 - Math.pow(normalizedSpeed, 1.6)
+        1 - Math.pow(normalizedSpeed, 1.6)
       );
 
-      const accel =
-        bike.accelRate *
-        this.throttleIntensity *
-        powerFactor;
-
-      this.speedKmh = Math.min(
-        topSpeed,
-        safeSpeed + accel * delta
-      );
+      const accel = bike.accelRate * this.throttleIntensity * powerFactor;
+      this.speedKmh = Math.min(topSpeed, safeSpeed + accel * delta);
     } else {
-      // FIX: gentler coasting slowdown
-      const coastDrag =
-        0.8 + (safeSpeed / 100) * 1.2;
-
-      this.speedKmh = Math.max(
-        0,
-        safeSpeed - coastDrag * delta
-      );
+      const coastDrag = 0.8 + (safeSpeed / 100) * 1.2;
+      this.speedKmh = Math.max(0, safeSpeed - coastDrag * delta);
     }
 
-    // Ensure valid speed
-    if (
-      !Number.isFinite(this.speedKmh) ||
-      this.speedKmh < 0
-    ) {
+    if (!Number.isFinite(this.speedKmh) || this.speedKmh < 0) {
       this.speedKmh = 0;
     }
 
-    if (this.speedKmh > this.maxSpeedReached) {
-      this.maxSpeedReached = Math.round(this.speedKmh);
-    }
+    this.maxSpeedReached = Math.max(
+      this.maxSpeedReached,
+      Math.round(this.speedKmh)
+    );
 
-    // 3. Transmission
     this.updateGears();
 
-    // 4. Forward movement
     const speedMs = (this.speedKmh * 1000) / 3600;
-
     this.playerZ -= speedMs * delta;
     this.distanceMeters += speedMs * delta;
 
     if (this.speedKmh > 80) {
-      this.score += Math.round(
-        (this.speedKmh - 80) * 0.14
-      );
+      this.score += Math.round((this.speedKmh - 80) * 0.14);
     }
 
     if (this.mode === 'time-rush') {
@@ -550,19 +580,14 @@ export class GameEngine {
       }
     }
 
-    // 5. Camera and cockpit dynamics
     const pitch =
       GAME_CONSTANTS.CAMERA_BASE_PITCH +
       (this.inputs.throttle ? -0.012 : 0) +
       (this.inputs.brake ? 0.024 : 0);
 
-    this.camera.position.x =
-      this.playerX + this.currentLean * 0.12;
-
+    this.camera.position.x = this.playerX + this.currentLean * 0.12;
     this.camera.position.y = GAME_CONSTANTS.CAMERA_HEIGHT;
-
-    this.camera.position.z =
-      this.playerZ + GAME_CONSTANTS.CAMERA_Z;
+    this.camera.position.z = this.playerZ + GAME_CONSTANTS.CAMERA_Z;
 
     this.camera.rotation.z = this.currentLean;
     this.camera.rotation.x = pitch;
@@ -585,26 +610,15 @@ export class GameEngine {
       this.distanceMeters
     );
 
-    // Keep sky centered
-    if (this.skyDome) {
-      this.skyDome.position.set(
-        this.camera.position.x,
-        0,
-        this.playerZ
-      );
-    }
-
-    // 6. Scenery and traffic
-    this.scenery.update(this.playerZ);
-
-    this.traffic.update(
-      delta,
-      this.playerX,
-      this.playerZ,
-      this.speedKmh
+    this.skyDome.position.set(
+      this.camera.position.x,
+      0,
+      this.playerZ
     );
 
-    // 7. Audio
+    this.scenery.update(this.playerZ);
+    this.traffic.update(delta, this.playerX, this.playerZ, this.speedKmh);
+
     sounds.updateEngine(
       this.speedKmh,
       this.rpmNorm,
@@ -614,11 +628,7 @@ export class GameEngine {
 
     sounds.setHorn(this.inputs.horn);
 
-    // 8. UI stats
-    if (
-      this.onStatsUpdate &&
-      Math.floor(time * 30) % 2 === 0
-    ) {
+    if (this.onStatsUpdate && Math.floor(time * 30) % 2 === 0) {
       this.onStatsUpdate(this.getStatsSnapshot());
     }
   }
@@ -626,8 +636,6 @@ export class GameEngine {
   private updateGears() {
     const bike = this.currentBike;
     const maxSpeed = bike.topSpeedKmh;
-
-    // 5-speed or 6-speed transmission
     const has6Gears = bike.id.includes('450');
     const numGears = has6Gears ? 6 : 5;
 
@@ -636,9 +644,7 @@ export class GameEngine {
     let gearMax = maxSpeed / numGears;
 
     for (let g = 1; g <= numGears; g++) {
-      const gMin =
-        ((g - 1) / numGears) * maxSpeed * 0.85;
-
+      const gMin = ((g - 1) / numGears) * maxSpeed * 0.85;
       const gMax =
         (g / numGears) *
         maxSpeed *
@@ -660,35 +666,23 @@ export class GameEngine {
       1,
       Math.max(
         0,
-        (this.speedKmh - gearMin) /
-          Math.max(1, gearMax - gearMin)
+        (this.speedKmh - gearMin) / Math.max(1, gearMax - gearMin)
       )
     );
 
     this.rpmNorm = 0.2 + gearProgress * 0.8;
   }
 
-  // Original crash animation and timing preserved
   private updateCrash(delta: number) {
     this.crashTimer += delta;
 
-    this.camera.rotation.x +=
-      this.crashAngularVel.x * delta;
+    this.camera.rotation.x += this.crashAngularVel.x * delta;
+    this.camera.rotation.y += this.crashAngularVel.y * delta;
+    this.camera.rotation.z += this.crashAngularVel.z * delta;
 
-    this.camera.rotation.y +=
-      this.crashAngularVel.y * delta;
-
-    this.camera.rotation.z +=
-      this.crashAngularVel.z * delta;
-
-    // Original crash slowdown preserved
-    this.speedKmh = Math.max(
-      0,
-      this.speedKmh - 75 * delta
-    );
+    this.speedKmh = Math.max(0, this.speedKmh - 75 * delta);
 
     const speedMs = (this.speedKmh * 1000) / 3600;
-
     this.playerZ -= speedMs * delta;
     this.camera.position.z = this.playerZ;
 
@@ -698,29 +692,22 @@ export class GameEngine {
     );
 
     this.scenery.update(this.playerZ);
+    this.skyDome.position.set(
+      this.camera.position.x,
+      0,
+      this.playerZ
+    );
 
-    if (this.skyDome) {
-      this.skyDome.position.set(
-        this.camera.position.x,
-        0,
-        this.playerZ
-      );
-    }
-
-    // Original 1.3-second Game Over sequence preserved
     if (this.crashTimer > 1.3 && !this.isGameOver) {
       this.isGameOver = true;
       this.isRunning = false;
-
-      if (this.onGameOver) {
-        this.onGameOver(this.getStatsSnapshot());
-      }
+      this.onGameOver?.(this.getStatsSnapshot());
     }
   }
 
   public getStatsSnapshot(
     closeCallText: string | null = null,
-    points: number = 0
+    points = 0
   ): GameStats {
     return {
       speedKmh: Math.round(this.speedKmh),
@@ -750,15 +737,10 @@ export class GameEngine {
     const aspect = width / height;
     this.camera.aspect = aspect;
 
-    if (aspect < 1.0) {
-      // Mobile portrait mode
+    if (aspect < 1) {
       const targetHFov = 72 * (Math.PI / 180);
-
       const vFovRad =
-        2 *
-        Math.atan(
-          Math.tan(targetHFov / 2) / aspect
-        );
+        2 * Math.atan(Math.tan(targetHFov / 2) / aspect);
 
       this.camera.fov = Math.min(
         84,
@@ -767,25 +749,18 @@ export class GameEngine {
 
       if (this.cockpit) {
         this.cockpit.group.scale.set(0.9, 0.9, 0.9);
-
-        this.cockpit.group.position.set(
-          0,
-          -0.035,
-          0.03
-        );
+        this.cockpit.group.position.set(0, -0.035, 0.03);
       }
     } else {
-      // Landscape mode
       this.camera.fov = 60;
 
       if (this.cockpit) {
-        this.cockpit.group.scale.set(1.0, 1.0, 1.0);
+        this.cockpit.group.scale.set(1, 1, 1);
         this.cockpit.group.position.set(0, 0, 0);
       }
     }
 
     this.camera.updateProjectionMatrix();
-
     this.renderer.setSize(width, height);
   };
 
@@ -795,11 +770,13 @@ export class GameEngine {
 
   public destroy() {
     window.removeEventListener('resize', this.onResize);
-
     cancelAnimationFrame(this.animFrameId);
-
+    this.clearRemotePlayers();
     sounds.stopAll();
-
     this.renderer.dispose();
+
+    if (this.renderer.domElement.parentElement === this.container) {
+      this.container.removeChild(this.renderer.domElement);
+    }
   }
 }
