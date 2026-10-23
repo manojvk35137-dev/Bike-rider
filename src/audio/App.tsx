@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { sounds } from './SoundEffects';
@@ -17,12 +16,38 @@ const SERVER_URL = 'https://bike-rider-multiplayer.onrender.com';
 
 type MultiplayerMode = 'race' | 'free-ride';
 
+type Friend = {
+  username: string;
+  online: boolean;
+};
+
+type RoomInvite = {
+  inviteId: string;
+  from: string;
+  to?: string;
+  roomCode: string;
+  mode: MultiplayerMode;
+};
+
+type ServerAck = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  username?: string;
+  roomCode?: string;
+  mode?: MultiplayerMode;
+  playerCount?: number;
+  accepted?: boolean;
+};
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef('');
   const multiplayerModeRef = useRef<MultiplayerMode>('race');
+  const pendingUsernameRef = useRef('');
+  const connectedOnceRef = useRef(false);
 
   const [showIntro, setShowIntro] = useState(true);
   const [selectedBike, setSelectedBike] =
@@ -36,6 +61,7 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
 
   const [showMultiplayer, setShowMultiplayer] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
   const [roomCode, setRoomCode] = useState('');
   const [activeRoom, setActiveRoom] = useState('');
   const [multiplayerMode, setMultiplayerMode] =
@@ -43,6 +69,15 @@ export default function App() {
   const [playerCount, setPlayerCount] = useState(0);
   const [multiplayerMessage, setMultiplayerMessage] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+
+  const [username, setUsername] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [friendInput, setFriendInput] = useState('');
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [friendRequests, setFriendRequests] = useState<string[]>([]);
+  const [roomInvites, setRoomInvites] = useState<RoomInvite[]>([]);
+  const [friendsMessage, setFriendsMessage] = useState('');
+  const [isSettingUsername, setIsSettingUsername] = useState(false);
 
   const [highScore, setHighScore] = useState<number>(() => {
     try {
@@ -90,10 +125,7 @@ export default function App() {
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
-    const engine = new GameEngine(
-      canvasMountRef.current,
-      selectedBike
-    );
+    const engine = new GameEngine(canvasMountRef.current, selectedBike);
     engineRef.current = engine;
 
     engine.onStatsUpdate = (stats) => {
@@ -104,10 +136,7 @@ export default function App() {
 
         setIsNewHigh(true);
         try {
-          localStorage.setItem(
-            'moto_rider_highscore',
-            stats.score.toString()
-          );
+          localStorage.setItem('moto_rider_highscore', stats.score.toString());
         } catch {
           // Local storage may be unavailable.
         }
@@ -244,7 +273,6 @@ export default function App() {
     };
   }, []);
 
-  // Multiplayer socket lifecycle.
   const getSocket = useCallback((): Socket => {
     if (socketRef.current) return socketRef.current;
 
@@ -258,43 +286,69 @@ export default function App() {
 
     socket.on('connect', () => {
       setMultiplayerMessage('Connected to multiplayer server.');
+      // The server stores usernames in memory, so re-register after reconnect.
+      if (pendingUsernameRef.current) {
+        socket.emit('setUsername', pendingUsernameRef.current, (result: ServerAck) => {
+          if (result?.success && result.username) {
+            setUsername(result.username);
+            setUsernameInput(result.username);
+          } else if (result?.error) {
+            setFriendsMessage(result.error);
+          }
+        });
+      }
     });
 
     socket.on('connect_error', () => {
-      setMultiplayerMessage(
-        'Connection failed. Please try again in a moment.'
-      );
+      setMultiplayerMessage('Connection failed. Please try again in a moment.');
+      setFriendsMessage('Could not connect to multiplayer server.');
       setIsConnecting(false);
+      setIsSettingUsername(false);
     });
 
     socket.on('playerJoined', (data: { playerCount?: number }) => {
-      if (typeof data?.playerCount === 'number') {
-        setPlayerCount(data.playerCount);
-      }
+      if (typeof data?.playerCount === 'number') setPlayerCount(data.playerCount);
     });
 
     socket.on('playerLeft', () => {
       setPlayerCount((count) => Math.max(1, count - 1));
+      engineRef.current?.clearRemotePlayers();
     });
 
     socket.on('playerState', (state) => {
       engineRef.current?.updateRemotePlayer(state);
     });
 
+    socket.on('friendsList', (list: Friend[]) => {
+      setFriends(Array.isArray(list) ? list : []);
+    });
+
+    socket.on('friendRequests', (requests: string[]) => {
+      setFriendRequests(Array.isArray(requests) ? requests : []);
+    });
+
+    socket.on('roomInvite', (invite: RoomInvite) => {
+      if (!invite?.inviteId || !invite?.roomCode || !invite?.from) return;
+      setRoomInvites((previous) =>
+        previous.some((item) => item.inviteId === invite.inviteId)
+          ? previous
+          : [...previous, invite]
+      );
+      setFriendsMessage(`${invite.from} invited you to a room.`);
+      setShowFriends(true);
+    });
+
     return socket;
   }, []);
 
-  // Send our current position to other players.
   useEffect(() => {
     if (!activeRoom || !gameStarted) return;
-
     const socket = socketRef.current;
     if (!socket) return;
 
     const timer = window.setInterval(() => {
       const engine = engineRef.current;
-      if (!engine || !engine.isRunning || engine.isPaused) return;
-      if (!socket.connected) return;
+      if (!engine || !engine.isRunning || engine.isPaused || !socket.connected) return;
 
       socket.emit('playerState', {
         x: engine.playerX,
@@ -308,12 +362,9 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [activeRoom, gameStarted]);
 
-  // Keep remote players out of the scene when leaving.
   const leaveRoom = useCallback(() => {
     const socket = socketRef.current;
-    if (socket && activeRoomRef.current) {
-      socket.emit('leaveRoom');
-    }
+    if (socket && activeRoomRef.current) socket.emit('leaveRoom');
 
     activeRoomRef.current = '';
     setActiveRoom('');
@@ -339,36 +390,22 @@ export default function App() {
 
     const doCreate = () => {
       const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-
-      socket.emit(
-        'createRoom',
-        { roomCode: code, mode: multiplayerModeRef.current },
-        (result: {
-          success?: boolean;
-          error?: string;
-          roomCode?: string;
-        }) => {
-          setIsConnecting(false);
-
-          if (!result?.success || !result.roomCode) {
-            setMultiplayerMessage(result?.error || 'Could not create room.');
-            return;
-          }
-
-          activeRoomRef.current = result.roomCode;
-          setActiveRoom(result.roomCode);
-          setRoomCode(result.roomCode);
-          setPlayerCount(1);
-          setMultiplayerMessage(
-            `Room ${result.roomCode} created. Share the code with friends.`
-          );
+      socket.emit('createRoom', { roomCode: code, mode: multiplayerModeRef.current }, (result: ServerAck) => {
+        setIsConnecting(false);
+        if (!result?.success || !result.roomCode) {
+          setMultiplayerMessage(result?.error || 'Could not create room.');
+          return;
         }
-      );
+        activeRoomRef.current = result.roomCode;
+        setActiveRoom(result.roomCode);
+        setRoomCode(result.roomCode);
+        setPlayerCount(1);
+        setMultiplayerMessage(`Room ${result.roomCode} created. Share the code with friends.`);
+      });
     };
 
-    if (socket.connected) {
-      doCreate();
-    } else {
+    if (socket.connected) doCreate();
+    else {
       socket.once('connect', doCreate);
       socket.once('connect_error', () => setIsConnecting(false));
       socket.connect();
@@ -377,7 +414,6 @@ export default function App() {
 
   const joinRoom = useCallback(() => {
     const code = roomCode.trim().toUpperCase();
-
     if (!/^[A-Z0-9]{4,8}$/.test(code)) {
       setMultiplayerMessage('Enter a valid room code (4–8 letters/numbers).');
       return;
@@ -388,59 +424,150 @@ export default function App() {
     setMultiplayerMessage('Joining room...');
 
     const doJoin = () => {
-      socket.emit(
-        'joinRoom',
-        { roomCode: code },
-        (result: {
-          success?: boolean;
-          error?: string;
-          roomCode?: string;
-          playerCount?: number;
-        }) => {
-          setIsConnecting(false);
-
-          if (!result?.success || !result.roomCode) {
-            setMultiplayerMessage(result?.error || 'Could not join room.');
-            return;
-          }
-
-          activeRoomRef.current = result.roomCode;
-          setActiveRoom(result.roomCode);
-          setRoomCode(result.roomCode);
-          setPlayerCount(result.playerCount || 1);
-          setMultiplayerMessage(`Joined room ${result.roomCode}.`);
+      socket.emit('joinRoom', { roomCode: code }, (result: ServerAck) => {
+        setIsConnecting(false);
+        if (!result?.success || !result.roomCode) {
+          setMultiplayerMessage(result?.error || 'Could not join room.');
+          return;
         }
-      );
+        activeRoomRef.current = result.roomCode;
+        setActiveRoom(result.roomCode);
+        setRoomCode(result.roomCode);
+        setPlayerCount(result.playerCount || 1);
+        setMultiplayerMessage(`Joined room ${result.roomCode}.`);
+      });
     };
 
-    if (socket.connected) {
-      doJoin();
-    } else {
+    if (socket.connected) doJoin();
+    else {
       socket.once('connect', doJoin);
       socket.once('connect_error', () => setIsConnecting(false));
       socket.connect();
     }
   }, [getSocket, roomCode]);
 
+  const setMyUsername = useCallback(() => {
+    const cleanName = usernameInput.trim();
+    if (!/^[a-zA-Z0-9_]{3,16}$/.test(cleanName)) {
+      setFriendsMessage('Username must be 3–16 letters, numbers or underscores.');
+      return;
+    }
+
+    const socket = getSocket();
+    pendingUsernameRef.current = cleanName;
+    setIsSettingUsername(true);
+    setFriendsMessage('Setting username...');
+
+    const submit = () => {
+      socket.emit('setUsername', cleanName, (result: ServerAck) => {
+        setIsSettingUsername(false);
+        if (!result?.success || !result.username) {
+          setFriendsMessage(result?.error || 'Could not set username.');
+          return;
+        }
+        pendingUsernameRef.current = result.username;
+        setUsername(result.username);
+        setUsernameInput(result.username);
+        setFriendsMessage(`Welcome, ${result.username}!`);
+      });
+    };
+
+    if (socket.connected) submit();
+    else {
+      socket.once('connect', submit);
+      socket.once('connect_error', () => {
+        setIsSettingUsername(false);
+        setFriendsMessage('Could not connect to multiplayer server.');
+      });
+      socket.connect();
+    }
+  }, [getSocket, usernameInput]);
+
+  const addFriend = useCallback(() => {
+    const name = friendInput.trim();
+    if (!username) {
+      setFriendsMessage('Set your username first.');
+      return;
+    }
+    if (!name) {
+      setFriendsMessage('Enter a friend username.');
+      return;
+    }
+
+    const socket = getSocket();
+    socket.emit('addFriend', name, (result: ServerAck) => {
+      setFriendsMessage(result?.success ? result.message || 'Friend request sent.' : result?.error || 'Could not send request.');
+      if (result?.success) setFriendInput('');
+    });
+  }, [friendInput, getSocket, username]);
+
+  const respondToFriendRequest = useCallback((requestUsername: string, accept: boolean) => {
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      setFriendsMessage('Server is not connected.');
+      return;
+    }
+
+    socket.emit('respondFriendRequest', { username: requestUsername, accept }, (result: ServerAck) => {
+      setFriendsMessage(result?.success ? (accept ? `${requestUsername} is now your friend!` : 'Request declined.') : result?.error || 'Could not process request.');
+    });
+  }, []);
+
+  const inviteFriendToRoom = useCallback((friendUsername: string) => {
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      setFriendsMessage('Server is not connected.');
+      return;
+    }
+
+    socket.emit('inviteToRoom', { username: friendUsername }, (result: ServerAck) => {
+      setFriendsMessage(result?.success ? result.message || `Invite sent to ${friendUsername}.` : result?.error || 'Could not send invite.');
+    });
+  }, []);
+
+  const respondToRoomInvite = useCallback((invite: RoomInvite, accept: boolean) => {
+    const socket = getSocket();
+    socket.emit('respondRoomInvite', { inviteId: invite.inviteId, accept }, (result: ServerAck) => {
+      setRoomInvites((previous) => previous.filter((item) => item.inviteId !== invite.inviteId));
+
+      if (!result?.success) {
+        setFriendsMessage(result?.error || 'Could not process room invite.');
+        return;
+      }
+      if (!accept || !result.accepted || !result.roomCode) {
+        setFriendsMessage('Room invite declined.');
+        return;
+      }
+
+      activeRoomRef.current = result.roomCode;
+      setActiveRoom(result.roomCode);
+      setRoomCode(result.roomCode);
+      setPlayerCount(result.playerCount || 2);
+
+      const mode = result.mode || invite.mode;
+      multiplayerModeRef.current = mode;
+      setMultiplayerMode(mode);
+      setShowMultiplayer(true);
+      setShowFriends(false);
+      setFriendsMessage(`Joined ${invite.from}'s room: ${result.roomCode}`);
+    });
+  }, [getSocket]);
+
   const handleSelectBike = useCallback((bike: MotorcycleConfig) => {
     setSelectedBike(bike);
     engineRef.current?.setMotorcycle(bike);
   }, []);
 
-  const handleStartGame = useCallback(
-    (mode: GameMode, bike: MotorcycleConfig) => {
-      setCurrentMode(mode);
-      setSelectedBike(bike);
-      setIsNewHigh(false);
-      setIsGameOver(false);
-      setIsPaused(false);
-      setGameStarted(true);
-
-      engineRef.current?.setMotorcycle(bike);
-      engineRef.current?.startGame(mode);
-    },
-    []
-  );
+  const handleStartGame = useCallback((mode: GameMode, bike: MotorcycleConfig) => {
+    setCurrentMode(mode);
+    setSelectedBike(bike);
+    setIsNewHigh(false);
+    setIsGameOver(false);
+    setIsPaused(false);
+    setGameStarted(true);
+    engineRef.current?.setMotorcycle(bike);
+    engineRef.current?.startGame(mode);
+  }, []);
 
   const handlePause = useCallback(() => {
     const engine = engineRef.current;
@@ -460,7 +587,6 @@ export default function App() {
     setIsGameOver(false);
     setIsPaused(false);
     setGameStarted(true);
-
     engineRef.current?.setMotorcycle(selectedBike);
     engineRef.current?.startGame(currentMode);
   }, [currentMode, selectedBike]);
@@ -470,7 +596,6 @@ export default function App() {
     setIsPaused(false);
     setGameStarted(false);
     sounds.stopAll();
-
     if (engineRef.current) {
       engineRef.current.isRunning = false;
       engineRef.current.clearRemotePlayers();
@@ -486,8 +611,8 @@ export default function App() {
   }, []);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black select-none font-sans">
-      <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
+    <div className="relative h-screen w-screen overflow-hidden bg-black font-sans select-none">
+      <div ref={canvasMountRef} className="absolute inset-0 h-full w-full" />
 
       {showIntro && (
         <div className="creator-intro fixed inset-0 z-[100] flex items-center justify-center overflow-hidden" aria-label="Created by Nidhin">
@@ -496,7 +621,6 @@ export default function App() {
           <div className="intro-orb intro-orb-two" />
           <div className="intro-light intro-light-one" />
           <div className="intro-light intro-light-two" />
-
           <div className="intro-content text-center">
             <div className="intro-line" />
             <p className="intro-caption">BUILT WITH PASSION</p>
@@ -505,7 +629,6 @@ export default function App() {
             <div className="intro-bottom-line" />
             <p className="intro-subtitle">TWO WHEELS. ONE JOURNEY.</p>
           </div>
-
           <div className="intro-corner intro-corner-tl" />
           <div className="intro-corner intro-corner-br" />
           <div className="intro-loader"><span /></div>
@@ -535,6 +658,13 @@ export default function App() {
           />
 
           <button
+            onClick={() => setShowFriends((value) => !value)}
+            className="fixed bottom-20 right-4 z-40 rounded-xl border border-emerald-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
+          >
+            👥 Friends
+          </button>
+
+          <button
             onClick={() => setShowMultiplayer((value) => !value)}
             className="fixed bottom-5 right-4 z-40 rounded-xl border border-cyan-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
           >
@@ -546,17 +676,10 @@ export default function App() {
               <div className="w-full max-w-md rounded-2xl border border-cyan-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">Multiplayer</h2>
-                  <button
-                    onClick={() => setShowMultiplayer(false)}
-                    className="rounded-lg bg-slate-800 px-3 py-2"
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => setShowMultiplayer(false)} className="rounded-lg bg-slate-800 px-3 py-2">✕</button>
                 </div>
 
-                <p className="mb-3 text-sm text-slate-300">
-                  Create a private room or join a friend. Maximum 4 players.
-                </p>
+                <p className="mb-3 text-sm text-slate-300">Create a private room or join a friend. Maximum 4 players.</p>
 
                 <div className="mb-4 grid grid-cols-2 gap-2">
                   <button
@@ -564,11 +687,7 @@ export default function App() {
                       multiplayerModeRef.current = 'race';
                       setMultiplayerMode('race');
                     }}
-                    className={`rounded-xl border p-3 font-bold ${
-                      multiplayerMode === 'race'
-                        ? 'border-cyan-300 bg-cyan-900/70'
-                        : 'border-slate-700 bg-slate-900'
-                    }`}
+                    className={`rounded-xl border p-3 font-bold ${multiplayerMode === 'race' ? 'border-cyan-300 bg-cyan-900/70' : 'border-slate-700 bg-slate-900'}`}
                   >
                     🏁 Friends Race
                   </button>
@@ -577,11 +696,7 @@ export default function App() {
                       multiplayerModeRef.current = 'free-ride';
                       setMultiplayerMode('free-ride');
                     }}
-                    className={`rounded-xl border p-3 font-bold ${
-                      multiplayerMode === 'free-ride'
-                        ? 'border-cyan-300 bg-cyan-900/70'
-                        : 'border-slate-700 bg-slate-900'
-                    }`}
+                    className={`rounded-xl border p-3 font-bold ${multiplayerMode === 'free-ride' ? 'border-cyan-300 bg-cyan-900/70' : 'border-slate-700 bg-slate-900'}`}
                   >
                     🌿 Free Ride
                   </button>
@@ -589,16 +704,10 @@ export default function App() {
 
                 {!activeRoom ? (
                   <>
-                    <button
-                      onClick={createRoom}
-                      disabled={isConnecting}
-                      className="mb-3 w-full rounded-xl bg-cyan-600 p-3 font-bold disabled:opacity-50"
-                    >
+                    <button onClick={createRoom} disabled={isConnecting} className="mb-3 w-full rounded-xl bg-cyan-600 p-3 font-bold disabled:opacity-50">
                       {isConnecting ? 'Connecting...' : 'Create Private Room'}
                     </button>
-
                     <div className="my-3 text-center text-xs text-slate-400">OR JOIN FRIEND</div>
-
                     <input
                       value={roomCode}
                       onChange={(event) => setRoomCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
@@ -606,12 +715,7 @@ export default function App() {
                       maxLength={8}
                       className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-center text-lg uppercase tracking-[0.2em] text-white outline-none focus:border-cyan-300"
                     />
-
-                    <button
-                      onClick={joinRoom}
-                      disabled={isConnecting}
-                      className="w-full rounded-xl bg-indigo-600 p-3 font-bold disabled:opacity-50"
-                    >
+                    <button onClick={joinRoom} disabled={isConnecting} className="w-full rounded-xl bg-indigo-600 p-3 font-bold disabled:opacity-50">
                       Join Room
                     </button>
                   </>
@@ -626,9 +730,7 @@ export default function App() {
                             navigator.clipboard.writeText(activeRoom)
                               .then(() => setMultiplayerMessage('Room code copied.'))
                               .catch(() => setMultiplayerMessage(`Share code: ${activeRoom}`));
-                          } else {
-                            setMultiplayerMessage(`Share code: ${activeRoom}`);
-                          }
+                          } else setMultiplayerMessage(`Share code: ${activeRoom}`);
                         }}
                         className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold"
                       >
@@ -636,25 +738,116 @@ export default function App() {
                       </button>
                       <p className="mt-3 text-sm">Players connected: {playerCount}/4</p>
                     </div>
-
-                    <p className="mt-3 text-sm text-slate-300">
-                      Close this panel and start the ride from the existing garage screen.
-                    </p>
-
-                    <button
-                      onClick={leaveRoom}
-                      className="mt-4 w-full rounded-xl bg-red-700 p-3 font-bold"
-                    >
-                      Leave Room
-                    </button>
+                    <p className="mt-3 text-sm text-slate-300">Close this panel and start the ride from the existing garage screen.</p>
+                    <button onClick={leaveRoom} className="mt-4 w-full rounded-xl bg-red-700 p-3 font-bold">Leave Room</button>
                   </>
                 )}
 
-                {multiplayerMessage && (
-                  <p className="mt-4 break-words text-center text-sm text-cyan-200" role="status">
-                    {multiplayerMessage}
-                  </p>
+                {multiplayerMessage && <p className="mt-4 break-words text-center text-sm text-cyan-200" role="status">{multiplayerMessage}</p>}
+              </div>
+            </div>
+          )}
+
+          {showFriends && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3">
+              <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-emerald-300/40 bg-slate-950 p-5 text-white shadow-2xl">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-extrabold">👥 Friends</h2>
+                  <button onClick={() => setShowFriends(false)} className="rounded-lg bg-slate-800 px-3 py-2">✕</button>
+                </div>
+
+                {!username ? (
+                  <>
+                    <p className="mb-3 text-sm text-slate-300">Set a username to use friends and room invites.</p>
+                    <input
+                      value={usernameInput}
+                      onChange={(event) => setUsernameInput(event.target.value)}
+                      placeholder="Choose username (3–16 chars)"
+                      maxLength={16}
+                      className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-white outline-none focus:border-emerald-300"
+                    />
+                    <button onClick={setMyUsername} disabled={isSettingUsername} className="w-full rounded-xl bg-emerald-600 p-3 font-bold disabled:opacity-50">
+                      {isSettingUsername ? 'Connecting...' : 'Set Username'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-4 rounded-xl bg-slate-900 p-3">
+                      <p className="text-xs text-slate-400">YOUR USERNAME</p>
+                      <p className="text-lg font-bold text-emerald-300">{username}</p>
+                    </div>
+
+                    <div className="mb-5">
+                      <h3 className="mb-2 font-bold">Add Friend</h3>
+                      <div className="flex gap-2">
+                        <input
+                          value={friendInput}
+                          onChange={(event) => setFriendInput(event.target.value)}
+                          placeholder="Friend username"
+                          maxLength={16}
+                          className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900 p-3 text-white"
+                        />
+                        <button onClick={addFriend} className="rounded-xl bg-indigo-600 px-4 font-bold">Add</button>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-400">Friend request ayakkaan avar online aayirikkanam.</p>
+                    </div>
+
+                    <div className="mb-5">
+                      <h3 className="mb-2 font-bold">Incoming Requests ({friendRequests.length})</h3>
+                      {friendRequests.length === 0 ? (
+                        <p className="text-sm text-slate-400">No incoming requests.</p>
+                      ) : friendRequests.map((request) => (
+                        <div key={request} className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3">
+                          <span className="break-all">{request}</span>
+                          <div className="flex gap-2">
+                            <button onClick={() => respondToFriendRequest(request, true)} className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold">Accept</button>
+                            <button onClick={() => respondToFriendRequest(request, false)} className="rounded-lg bg-red-800 px-3 py-2 text-sm font-bold">Decline</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mb-5">
+                      <h3 className="mb-2 font-bold">My Friends ({friends.length})</h3>
+                      {friends.length === 0 ? (
+                        <p className="text-sm text-slate-400">Friends list empty.</p>
+                      ) : friends.map((friend) => (
+                        <div key={friend.username} className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3">
+                          <div className="min-w-0">
+                            <p className="break-all font-semibold">{friend.username}</p>
+                            <p className={`text-xs ${friend.online ? 'text-emerald-300' : 'text-slate-500'}`}>{friend.online ? '● Online' : '○ Offline'}</p>
+                          </div>
+                          <button
+                            disabled={!friend.online || !activeRoom}
+                            onClick={() => inviteFriendToRoom(friend.username)}
+                            className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-40"
+                          >
+                            Invite
+                          </button>
+                        </div>
+                      ))}
+                      {!activeRoom && friends.length > 0 && <p className="mt-2 text-xs text-slate-400">Invite button use cheyyaan Multiplayer-il room create/join cheyyu.</p>}
+                    </div>
+
+                    <div>
+                      <h3 className="mb-2 font-bold">Room Invites ({roomInvites.length})</h3>
+                      {roomInvites.length === 0 ? (
+                        <p className="text-sm text-slate-400">No pending room invites.</p>
+                      ) : roomInvites.map((invite) => (
+                        <div key={invite.inviteId} className="mb-2 rounded-xl bg-slate-900 p-3">
+                          <p className="mb-1 font-semibold">{invite.from} invited you</p>
+                          <p className="mb-3 text-xs text-slate-400">Room {invite.roomCode} · {invite.mode}</p>
+                          <div className="flex gap-2">
+                            <button onClick={() => respondToRoomInvite(invite, true)} className="flex-1 rounded-lg bg-emerald-700 p-2 font-bold">Accept</button>
+                            <button onClick={() => respondToRoomInvite(invite, false)} className="flex-1 rounded-lg bg-red-800 p-2 font-bold">Decline</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
+
+                {friendsMessage && <p className="mt-4 break-words rounded-lg bg-slate-900 p-3 text-sm text-cyan-200" role="status">{friendsMessage}</p>}
               </div>
             </div>
           )}
