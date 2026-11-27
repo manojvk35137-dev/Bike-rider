@@ -101,7 +101,8 @@ export class GameEngine {
       fog: false,
       toneMapped: false,
       depthWrite: false,
-      depthTest: false,
+      // Keep depth testing enabled so the sky cannot draw over the road or scenery.
+      depthTest: true,
     });
     this.skyDome = new THREE.Mesh(skyGeo, skyMat);
     this.skyDome.frustumCulled = false;
