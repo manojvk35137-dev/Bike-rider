@@ -1,3 +1,4 @@
+
 name: Bike Rider Android APK
 
 on:
@@ -31,7 +32,7 @@ jobs:
       - name: Check app icon
         run: |
           if [ ! -f assets/icon.png ]; then
-            echo "ERROR: assets/icon.png not found. Upload the icon image first."
+            echo "ERROR: assets/icon.png not found."
             exit 1
           fi
 
@@ -44,7 +45,7 @@ jobs:
       - name: Create Android project
         run: npx cap add android
 
-      - name: Set Android app orientation to landscape
+      - name: Set Android orientation to landscape
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -52,33 +53,107 @@ jobs:
           import sys
 
           manifest = Path("android/app/src/main/AndroidManifest.xml")
+
           if not manifest.is_file():
-              print(f"ERROR: Android manifest not found: {manifest}")
+              print("ERROR: AndroidManifest.xml not found")
               sys.exit(1)
 
           content = manifest.read_text(encoding="utf-8")
+
           pattern = re.compile(
               r'<activity\b(?=[^>]*\bandroid:name="[^"]*MainActivity")[^>]*>',
               re.DOTALL
           )
+
           match = pattern.search(content)
+
           if not match:
-              print("ERROR: Could not find the MainActivity entry in AndroidManifest.xml")
+              print("ERROR: MainActivity not found")
               sys.exit(1)
 
-          activity_tag = match.group(0)
-          if re.search(r'\bandroid:screenOrientation="[^"]*"', activity_tag):
-              updated_tag = re.sub(
+          tag = match.group(0)
+
+          if re.search(r'\bandroid:screenOrientation="[^"]*"', tag):
+              updated = re.sub(
                   r'\bandroid:screenOrientation="[^"]*"',
                   'android:screenOrientation="landscape"',
-                  activity_tag
+                  tag
               )
           else:
-              updated_tag = activity_tag[:-1] + ' android:screenOrientation="landscape">'
+              updated = tag[:-1] + ' android:screenOrientation="landscape">'
 
-          content = content[:match.start()] + updated_tag + content[match.end():]
+          content = content[:match.start()] + updated + content[match.end():]
           manifest.write_text(content, encoding="utf-8")
-          print("MainActivity orientation set to landscape.")
+
+          print("Landscape orientation enabled.")
+          PY
+
+      - name: Enable immersive fullscreen mode
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          files = list(Path("android/app/src/main/java").rglob("MainActivity.java"))
+
+          if not files:
+              print("ERROR: MainActivity.java not found")
+              sys.exit(1)
+
+          main = files[0]
+          original = main.read_text(encoding="utf-8")
+
+          package_match = re.search(
+              r'^\s*package\s+([\w.]+)\s*;',
+              original,
+              re.MULTILINE
+          )
+
+          if not package_match:
+              print("ERROR: Could not detect MainActivity package")
+              sys.exit(1)
+
+          package_name = package_match.group(1)
+
+          code = f'''package {package_name};
+
+          import android.os.Bundle;
+          import android.view.View;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {{
+
+              @Override
+              public void onCreate(Bundle savedInstanceState) {{
+                  super.onCreate(savedInstanceState);
+                  hideSystemUI();
+              }}
+
+              private void hideSystemUI() {{
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                      | View.SYSTEM_UI_FLAG_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                  );
+              }}
+
+              @Override
+              public void onWindowFocusChanged(boolean hasFocus) {{
+                  super.onWindowFocusChanged(hasFocus);
+
+                  if (hasFocus) {{
+                      hideSystemUI();
+                  }}
+              }}
+          }}
+          '''
+
+          main.write_text(code, encoding="utf-8")
+          print("Immersive fullscreen enabled:", main)
           PY
 
       - name: Generate Android app icons
