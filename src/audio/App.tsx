@@ -140,14 +140,12 @@ export default function App() {
   const multiplayerModeRef = useRef<MultiplayerMode>('race');
   const pendingUsernameRef = useRef('');
 
-  // Music player refs
   const musicAudioRef = useRef<HTMLAudioElement | null>(null);
   const musicUrlsRef = useRef<string[]>([]);
   const musicTracksRef = useRef<MusicTrack[]>([]);
   const currentMusicIndexRef = useRef(0);
   const musicFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Audio gain and draggable panel refs
   const musicAudioContextRef = useRef<AudioContext | null>(null);
   const musicPanelRef = useRef<HTMLDivElement>(null);
 
@@ -170,14 +168,12 @@ export default function App() {
   const [isNewHigh, setIsNewHigh] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
 
-  // Music state
   const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
   const [currentMusicIndex, setCurrentMusicIndex] = useState(0);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.75);
   const [musicMessage, setMusicMessage] = useState('');
 
-  // Saved draggable music panel position
   const [musicPosition, setMusicPosition] = useState(() => {
     try {
       const saved = localStorage.getItem('bike_music_position');
@@ -286,7 +282,6 @@ export default function App() {
     currentMusicIndexRef.current = currentMusicIndex;
   }, [currentMusicIndex]);
 
-  // Create audio player, add audio gain and restore saved music.
   useEffect(() => {
     const audio = new Audio();
     audio.preload = 'auto';
@@ -298,7 +293,6 @@ export default function App() {
       const source = context.createMediaElementSource(audio);
       const gain = context.createGain();
 
-      // Increased music output gain.
       gain.gain.value = 1.8;
 
       source.connect(gain);
@@ -387,7 +381,6 @@ export default function App() {
     }
   }, [musicVolume]);
 
-  // Keep the music panel inside the visible screen after resizing.
   useEffect(() => {
     const handleResize = () => {
       const panel = musicPanelRef.current;
@@ -409,9 +402,6 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Drag from anywhere on the music player.
-  // Window listeners keep dragging reliable even when the pointer moves
-  // outside the player while dragging.
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const drag = musicDragRef.current;
@@ -660,7 +650,6 @@ export default function App() {
     }
   }, [resumeMusicAudio]);
 
-  // Create the game engine once.
   useEffect(() => {
     if (!canvasMountRef.current) return;
 
@@ -1265,7 +1254,6 @@ export default function App() {
     <div className="relative h-screen w-screen overflow-hidden bg-black font-sans select-none">
       <div ref={canvasMountRef} className="absolute inset-0 h-full w-full" />
 
-      {/* Intro screen - unchanged */}
       {showIntro && (
         <RoyalEnfieldIntro
           onStart={handleIntroStart}
@@ -1275,7 +1263,6 @@ export default function App() {
         />
       )}
 
-      {/* Hidden music file input */}
       <input
         ref={musicFileInputRef}
         type="file"
@@ -1288,7 +1275,6 @@ export default function App() {
         }}
       />
 
-      {/* Draggable Royal Enfield Music Player */}
       {!showIntro && (
         <div
           ref={musicPanelRef}
@@ -1302,11 +1288,9 @@ export default function App() {
         >
           <div className="mb-1 flex min-w-0 cursor-move items-center gap-1.5">
             <span className="text-sm text-amber-400">♫</span>
-
             <p className="min-w-0 flex-1 truncate text-[10px] font-bold tracking-wide text-amber-200">
               {currentTrackName}
             </p>
-
             <span className="text-[9px] text-amber-500">RE MUSIC</span>
           </div>
 
@@ -1361,7 +1345,6 @@ export default function App() {
 
           <div className="mt-1 flex items-center gap-2">
             <span className="text-[10px] text-amber-400">VOL</span>
-
             <input
               type="range"
               min="0"
@@ -1384,7 +1367,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Game HUD */}
       {gameStarted && !isPaused && !isGameOver && (
         <HUD
           stats={gameStats}
@@ -1400,7 +1382,6 @@ export default function App() {
         />
       )}
 
-      {/* Garage */}
       {!showIntro && !gameStarted && !isGameOver && (
         <>
           <StartScreen
@@ -1412,26 +1393,35 @@ export default function App() {
             onSelectBike={handleSelectBike}
           />
 
-          <button
-            onClick={() => setShowFriends((value) => !value)}
-            className="fixed bottom-20 right-4 z-40 rounded-xl border border-emerald-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
+          {/* Friends and Multiplayer buttons: moved slightly up,
+              positioned beside the viewer, away from bike details. */}
+          <div
+            className="fixed z-40 flex flex-col gap-2"
+            style={{
+              right: 'calc(24% + 16px)',
+              bottom: '40px',
+            }}
           >
-            👥 Friends
-          </button>
+            <button
+              onClick={() => setShowFriends((value) => !value)}
+              className="rounded-xl border border-emerald-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
+            >
+              👥 Friends
+            </button>
 
-          <button
-            onClick={() => setShowMultiplayer((value) => !value)}
-            className="fixed bottom-5 right-4 z-40 rounded-xl border border-cyan-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
-          >
-            {showMultiplayer ? 'Close Multiplayer' : '🌐 Multiplayer'}
-          </button>
+            <button
+              onClick={() => setShowMultiplayer((value) => !value)}
+              className="rounded-xl border border-cyan-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
+            >
+              {showMultiplayer ? 'Close Multiplayer' : '🌐 Multiplayer'}
+            </button>
+          </div>
 
           {showMultiplayer && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
               <div className="w-full max-w-md rounded-2xl border border-cyan-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">Multiplayer</h2>
-
                   <button
                     onClick={() => setShowMultiplayer(false)}
                     className="rounded-lg bg-slate-800 px-3 py-2"
@@ -1515,7 +1505,6 @@ export default function App() {
                   <>
                     <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/40 p-4 text-center">
                       <p className="text-sm text-emerald-200">ROOM CODE</p>
-
                       <p className="my-2 text-3xl font-black tracking-[0.25em]">
                         {activeRoom}
                       </p>
@@ -1579,7 +1568,6 @@ export default function App() {
               <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-emerald-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">👥 Friends</h2>
-
                   <button
                     onClick={() => setShowFriends(false)}
                     className="rounded-lg bg-slate-800 px-3 py-2"
@@ -1616,7 +1604,6 @@ export default function App() {
                   <>
                     <div className="mb-4 rounded-xl bg-slate-900 p-3">
                       <p className="text-xs text-slate-400">YOUR USERNAME</p>
-
                       <p className="text-lg font-bold text-emerald-300">
                         {username}
                       </p>
