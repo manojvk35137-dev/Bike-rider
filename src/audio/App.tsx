@@ -218,7 +218,6 @@ export default function App() {
     boost: false,
   });
 
-  // Keep music refs in sync with React state.
   useEffect(() => {
     musicTracksRef.current = musicTracks;
   }, [musicTracks]);
@@ -244,6 +243,7 @@ export default function App() {
         currentMusicIndexRef.current = nextIndex;
         setCurrentMusicIndex(nextIndex);
         audio.src = urls[nextIndex];
+
         audio.play().then(() => {
           setIsMusicPlaying(true);
         }).catch(() => {
@@ -300,7 +300,6 @@ export default function App() {
     };
   }, []);
 
-  // Apply volume changes.
   useEffect(() => {
     if (musicAudioRef.current) {
       musicAudioRef.current.volume = musicVolume;
@@ -308,8 +307,10 @@ export default function App() {
   }, [musicVolume]);
 
   const handleMusicUpload = useCallback(async (file: File) => {
-    if (!file.type.startsWith('audio/') &&
-        !/\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name)) {
+    if (
+      !file.type.startsWith('audio/') &&
+      !/\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name)
+    ) {
       setMusicMessage('Please select a valid audio file.');
       return;
     }
@@ -326,7 +327,6 @@ export default function App() {
       blob: file,
     };
 
-    // Create URL and start playback immediately from the upload action.
     const url = URL.createObjectURL(file);
     const nextTracks = [...musicTracksRef.current, track];
     const nextUrls = [...musicUrlsRef.current, url];
@@ -368,7 +368,9 @@ export default function App() {
 
     if (audio.paused) {
       if (!audio.src && musicUrlsRef.current.length > 0) {
-        audio.src = musicUrlsRef.current[currentMusicIndexRef.current] || musicUrlsRef.current[0];
+        audio.src =
+          musicUrlsRef.current[currentMusicIndexRef.current] ||
+          musicUrlsRef.current[0];
       }
 
       if (!audio.src) {
@@ -399,7 +401,9 @@ export default function App() {
 
     if (!audio || urls.length === 0) return;
 
-    const nextIndex = (currentMusicIndexRef.current + 1) % urls.length;
+    const nextIndex =
+      (currentMusicIndexRef.current + 1) % urls.length;
+
     currentMusicIndexRef.current = nextIndex;
     setCurrentMusicIndex(nextIndex);
 
@@ -408,7 +412,9 @@ export default function App() {
     try {
       await audio.play();
       setIsMusicPlaying(true);
-      setMusicMessage(`Now playing: ${musicTracksRef.current[nextIndex]?.name || 'Music'}`);
+      setMusicMessage(
+        `Now playing: ${musicTracksRef.current[nextIndex]?.name || 'Music'}`
+      );
     } catch {
       setIsMusicPlaying(false);
       setMusicMessage('Tap Play to start this track.');
@@ -432,7 +438,9 @@ export default function App() {
     try {
       await audio.play();
       setIsMusicPlaying(true);
-      setMusicMessage(`Now playing: ${musicTracksRef.current[previousIndex]?.name || 'Music'}`);
+      setMusicMessage(
+        `Now playing: ${musicTracksRef.current[previousIndex]?.name || 'Music'}`
+      );
     } catch {
       setIsMusicPlaying(false);
       setMusicMessage('Tap Play to start this track.');
@@ -445,6 +453,7 @@ export default function App() {
     if (!track) return;
 
     const audio = musicAudioRef.current;
+
     if (audio) {
       audio.pause();
       audio.removeAttribute('src');
@@ -511,11 +520,13 @@ export default function App() {
         if (stats.score <= previous) return previous;
 
         setIsNewHigh(true);
+
         try {
           localStorage.setItem('moto_rider_highscore', stats.score.toString());
         } catch {
           // Local storage may be unavailable.
         }
+
         return stats.score;
       });
     };
@@ -616,6 +627,7 @@ export default function App() {
 
     const onBlur = () => {
       const game = engineRef.current;
+
       if (game) {
         game.inputs = {
           steerLeft: false,
@@ -663,27 +675,36 @@ export default function App() {
 
     socket.on('connect', () => {
       setMultiplayerMessage('Connected to multiplayer server.');
+
       if (pendingUsernameRef.current) {
-        socket.emit('setUsername', pendingUsernameRef.current, (result: ServerAck) => {
-          if (result?.success && result.username) {
-            setUsername(result.username);
-            setUsernameInput(result.username);
-          } else if (result?.error) {
-            setFriendsMessage(result.error);
+        socket.emit(
+          'setUsername',
+          pendingUsernameRef.current,
+          (result: ServerAck) => {
+            if (result?.success && result.username) {
+              setUsername(result.username);
+              setUsernameInput(result.username);
+            } else if (result?.error) {
+              setFriendsMessage(result.error);
+            }
           }
-        });
+        );
       }
     });
 
     socket.on('connect_error', () => {
-      setMultiplayerMessage('Connection failed. Please try again in a moment.');
+      setMultiplayerMessage(
+        'Connection failed. Please try again in a moment.'
+      );
       setFriendsMessage('Could not connect to multiplayer server.');
       setIsConnecting(false);
       setIsSettingUsername(false);
     });
 
     socket.on('playerJoined', (data: { playerCount?: number }) => {
-      if (typeof data?.playerCount === 'number') setPlayerCount(data.playerCount);
+      if (typeof data?.playerCount === 'number') {
+        setPlayerCount(data.playerCount);
+      }
     });
 
     socket.on('playerLeft', () => {
@@ -721,12 +742,19 @@ export default function App() {
 
   useEffect(() => {
     if (!activeRoom || !gameStarted) return;
+
     const socket = socketRef.current;
     if (!socket) return;
 
     const timer = window.setInterval(() => {
       const engine = engineRef.current;
-      if (!engine || !engine.isRunning || engine.isPaused || !socket.connected) return;
+
+      if (
+        !engine ||
+        !engine.isRunning ||
+        engine.isPaused ||
+        !socket.connected
+      ) return;
 
       socket.emit('playerState', {
         x: engine.playerX,
@@ -769,20 +797,26 @@ export default function App() {
     const doCreate = () => {
       const code = Math.random().toString(36).slice(2, 8).toUpperCase();
 
-      socket.emit('createRoom', { roomCode: code, mode: multiplayerModeRef.current }, (result: ServerAck) => {
-        setIsConnecting(false);
+      socket.emit(
+        'createRoom',
+        { roomCode: code, mode: multiplayerModeRef.current },
+        (result: ServerAck) => {
+          setIsConnecting(false);
 
-        if (!result?.success || !result.roomCode) {
-          setMultiplayerMessage(result?.error || 'Could not create room.');
-          return;
+          if (!result?.success || !result.roomCode) {
+            setMultiplayerMessage(result?.error || 'Could not create room.');
+            return;
+          }
+
+          activeRoomRef.current = result.roomCode;
+          setActiveRoom(result.roomCode);
+          setRoomCode(result.roomCode);
+          setPlayerCount(1);
+          setMultiplayerMessage(
+            `Room ${result.roomCode} created. Share the code with friends.`
+          );
         }
-
-        activeRoomRef.current = result.roomCode;
-        setActiveRoom(result.roomCode);
-        setRoomCode(result.roomCode);
-        setPlayerCount(1);
-        setMultiplayerMessage(`Room ${result.roomCode} created. Share the code with friends.`);
-      });
+      );
     };
 
     if (socket.connected) doCreate();
@@ -797,7 +831,9 @@ export default function App() {
     const code = roomCode.trim().toUpperCase();
 
     if (!/^[A-Z0-9]{4,8}$/.test(code)) {
-      setMultiplayerMessage('Enter a valid room code (4–8 letters/numbers).');
+      setMultiplayerMessage(
+        'Enter a valid room code (4–8 letters/numbers).'
+      );
       return;
     }
 
@@ -834,7 +870,9 @@ export default function App() {
     const cleanName = usernameInput.trim();
 
     if (!/^[a-zA-Z0-9_]{3,16}$/.test(cleanName)) {
-      setFriendsMessage('Username must be 3–16 letters, numbers or underscores.');
+      setFriendsMessage(
+        'Username must be 3–16 letters, numbers or underscores.'
+      );
       return;
     }
 
@@ -886,23 +924,41 @@ export default function App() {
     const socket = getSocket();
 
     socket.emit('addFriend', name, (result: ServerAck) => {
-      setFriendsMessage(result?.success ? result.message || 'Friend request sent.' : result?.error || 'Could not send request.');
+      setFriendsMessage(
+        result?.success
+          ? result.message || 'Friend request sent.'
+          : result?.error || 'Could not send request.'
+      );
+
       if (result?.success) setFriendInput('');
     });
   }, [friendInput, getSocket, username]);
 
-  const respondToFriendRequest = useCallback((requestUsername: string, accept: boolean) => {
-    const socket = socketRef.current;
+  const respondToFriendRequest = useCallback(
+    (requestUsername: string, accept: boolean) => {
+      const socket = socketRef.current;
 
-    if (!socket?.connected) {
-      setFriendsMessage('Server is not connected.');
-      return;
-    }
+      if (!socket?.connected) {
+        setFriendsMessage('Server is not connected.');
+        return;
+      }
 
-    socket.emit('respondFriendRequest', { username: requestUsername, accept }, (result: ServerAck) => {
-      setFriendsMessage(result?.success ? (accept ? `${requestUsername} is now your friend!` : 'Request declined.') : result?.error || 'Could not process request.');
-    });
-  }, []);
+      socket.emit(
+        'respondFriendRequest',
+        { username: requestUsername, accept },
+        (result: ServerAck) => {
+          setFriendsMessage(
+            result?.success
+              ? accept
+                ? `${requestUsername} is now your friend!`
+                : 'Request declined.'
+              : result?.error || 'Could not process request.'
+          );
+        }
+      );
+    },
+    []
+  );
 
   const inviteFriendToRoom = useCallback((friendUsername: string) => {
     const socket = socketRef.current;
@@ -912,56 +968,80 @@ export default function App() {
       return;
     }
 
-    socket.emit('inviteToRoom', { username: friendUsername }, (result: ServerAck) => {
-      setFriendsMessage(result?.success ? result.message || `Invite sent to ${friendUsername}.` : result?.error || 'Could not send invite.');
-    });
+    socket.emit(
+      'inviteToRoom',
+      { username: friendUsername },
+      (result: ServerAck) => {
+        setFriendsMessage(
+          result?.success
+            ? result.message || `Invite sent to ${friendUsername}.`
+            : result?.error || 'Could not send invite.'
+        );
+      }
+    );
   }, []);
 
-  const respondToRoomInvite = useCallback((invite: RoomInvite, accept: boolean) => {
-    const socket = getSocket();
+  const respondToRoomInvite = useCallback(
+    (invite: RoomInvite, accept: boolean) => {
+      const socket = getSocket();
 
-    socket.emit('respondRoomInvite', { inviteId: invite.inviteId, accept }, (result: ServerAck) => {
-      setRoomInvites((previous) => previous.filter((item) => item.inviteId !== invite.inviteId));
+      socket.emit(
+        'respondRoomInvite',
+        { inviteId: invite.inviteId, accept },
+        (result: ServerAck) => {
+          setRoomInvites((previous) =>
+            previous.filter((item) => item.inviteId !== invite.inviteId)
+          );
 
-      if (!result?.success) {
-        setFriendsMessage(result?.error || 'Could not process room invite.');
-        return;
-      }
+          if (!result?.success) {
+            setFriendsMessage(
+              result?.error || 'Could not process room invite.'
+            );
+            return;
+          }
 
-      if (!accept || !result.accepted || !result.roomCode) {
-        setFriendsMessage('Room invite declined.');
-        return;
-      }
+          if (!accept || !result.accepted || !result.roomCode) {
+            setFriendsMessage('Room invite declined.');
+            return;
+          }
 
-      activeRoomRef.current = result.roomCode;
-      setActiveRoom(result.roomCode);
-      setRoomCode(result.roomCode);
-      setPlayerCount(result.playerCount || 2);
+          activeRoomRef.current = result.roomCode;
+          setActiveRoom(result.roomCode);
+          setRoomCode(result.roomCode);
+          setPlayerCount(result.playerCount || 2);
 
-      const mode = result.mode || invite.mode;
-      multiplayerModeRef.current = mode;
-      setMultiplayerMode(mode);
-      setShowMultiplayer(true);
-      setShowFriends(false);
-      setFriendsMessage(`Joined ${invite.from}'s room: ${result.roomCode}`);
-    });
-  }, [getSocket]);
+          const mode = result.mode || invite.mode;
+          multiplayerModeRef.current = mode;
+          setMultiplayerMode(mode);
+          setShowMultiplayer(true);
+          setShowFriends(false);
+          setFriendsMessage(
+            `Joined ${invite.from}'s room: ${result.roomCode}`
+          );
+        }
+      );
+    },
+    [getSocket]
+  );
 
   const handleSelectBike = useCallback((bike: MotorcycleConfig) => {
     setSelectedBike(bike);
     engineRef.current?.setMotorcycle(bike);
   }, []);
 
-  const handleStartGame = useCallback((mode: GameMode, bike: MotorcycleConfig) => {
-    setCurrentMode(mode);
-    setSelectedBike(bike);
-    setIsNewHigh(false);
-    setIsGameOver(false);
-    setIsPaused(false);
-    setGameStarted(true);
-    engineRef.current?.setMotorcycle(bike);
-    engineRef.current?.startGame(mode);
-  }, []);
+  const handleStartGame = useCallback(
+    (mode: GameMode, bike: MotorcycleConfig) => {
+      setCurrentMode(mode);
+      setSelectedBike(bike);
+      setIsNewHigh(false);
+      setIsGameOver(false);
+      setIsPaused(false);
+      setGameStarted(true);
+      engineRef.current?.setMotorcycle(bike);
+      engineRef.current?.startGame(mode);
+    },
+    []
+  );
 
   const handlePause = useCallback(() => {
     const engine = engineRef.current;
@@ -1013,7 +1093,7 @@ export default function App() {
     <div className="relative h-screen w-screen overflow-hidden bg-black font-sans select-none">
       <div ref={canvasMountRef} className="absolute inset-0 h-full w-full" />
 
-      {/* Intro screen */}
+      {/* Intro screen - unchanged */}
       {showIntro && (
         <RoyalEnfieldIntro
           onStart={handleIntroStart}
@@ -1023,7 +1103,7 @@ export default function App() {
         />
       )}
 
-      {/* Hidden music file input for player controls */}
+      {/* Hidden music file input */}
       <input
         ref={musicFileInputRef}
         type="file"
@@ -1036,75 +1116,87 @@ export default function App() {
         }}
       />
 
-      {/* Music controls remain mounted across garage and race */}
+      {/* Compact Royal Enfield Music Player */}
       {!showIntro && (
-        <div className="fixed bottom-3 left-3 z-[80] flex max-w-[calc(100vw-24px)] flex-wrap items-center gap-2 rounded-xl border border-amber-300/30 bg-black/85 p-2 text-white shadow-xl backdrop-blur-md">
-          <button
-            type="button"
-            onClick={handleMusicPrevious}
-            disabled={musicTracks.length === 0}
-            className="rounded-lg bg-slate-800 px-3 py-2 font-bold disabled:opacity-40"
-            aria-label="Previous track"
-          >
-            ⏮
-          </button>
+        <div className="fixed bottom-2 left-2 z-[80] w-[210px] max-w-[calc(100vw-16px)] rounded-xl border border-amber-500/40 bg-[#080808]/95 p-2 text-white shadow-lg backdrop-blur-md">
 
-          <button
-            type="button"
-            onClick={handleMusicPlayPause}
-            className="rounded-lg bg-amber-700 px-3 py-2 font-bold"
-          >
-            {isMusicPlaying ? 'Ⅱ Pause' : '▶ Play'}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleMusicNext}
-            disabled={musicTracks.length === 0}
-            className="rounded-lg bg-slate-800 px-3 py-2 font-bold disabled:opacity-40"
-            aria-label="Next track"
-          >
-            ⏭
-          </button>
-
-          <button
-            type="button"
-            onClick={() => musicFileInputRef.current?.click()}
-            className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-bold"
-          >
-            + Add
-          </button>
-
-          <button
-            type="button"
-            onClick={handleMusicDelete}
-            disabled={musicTracks.length === 0}
-            className="rounded-lg bg-red-900 px-3 py-2 text-sm font-bold disabled:opacity-40"
-            aria-label="Delete current track"
-          >
-            🗑
-          </button>
-
-          <div className="min-w-0 max-w-32">
-            <p className="truncate text-xs font-semibold text-amber-200">
+          <div className="mb-1 flex min-w-0 items-center gap-1.5">
+            <span className="text-sm text-amber-400">♫</span>
+            <p className="min-w-0 flex-1 truncate text-[10px] font-bold tracking-wide text-amber-200">
               {currentTrackName}
             </p>
+            <span className="text-[9px] text-amber-500">RE MUSIC</span>
+          </div>
+
+          <div className="flex items-center justify-between gap-1">
+            <button
+              type="button"
+              onClick={handleMusicPrevious}
+              disabled={musicTracks.length === 0}
+              className="h-7 w-7 rounded-md border border-amber-500/20 bg-zinc-900 text-xs text-amber-200 disabled:opacity-40"
+              aria-label="Previous track"
+            >
+              ⏮
+            </button>
+
+            <button
+              type="button"
+              onClick={handleMusicPlayPause}
+              className="h-7 min-w-12 rounded-md border border-amber-500/40 bg-amber-700 px-2 text-xs font-bold text-white"
+              aria-label={isMusicPlaying ? 'Pause music' : 'Play music'}
+            >
+              {isMusicPlaying ? 'Ⅱ' : '▶'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleMusicNext}
+              disabled={musicTracks.length === 0}
+              className="h-7 w-7 rounded-md border border-amber-500/20 bg-zinc-900 text-xs text-amber-200 disabled:opacity-40"
+              aria-label="Next track"
+            >
+              ⏭
+            </button>
+
+            <button
+              type="button"
+              onClick={() => musicFileInputRef.current?.click()}
+              className="h-7 rounded-md border border-amber-500/30 bg-zinc-900 px-2 text-[10px] font-bold text-amber-200"
+            >
+              + ADD
+            </button>
+
+            <button
+              type="button"
+              onClick={handleMusicDelete}
+              disabled={musicTracks.length === 0}
+              className="h-7 w-7 rounded-md bg-zinc-900 text-xs text-red-400 disabled:opacity-40"
+              aria-label="Delete current track"
+            >
+              🗑
+            </button>
+          </div>
+
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-[10px] text-amber-400">VOL</span>
             <input
               type="range"
               min="0"
               max="1"
               step="0.05"
               value={musicVolume}
-              onChange={(event) => setMusicVolume(Number(event.target.value))}
-              className="w-full accent-amber-400"
+              onChange={(event) =>
+                setMusicVolume(Number(event.target.value))
+              }
+              className="h-3 min-w-0 flex-1 accent-amber-500"
               aria-label="Music volume"
             />
           </div>
 
           {musicMessage && (
-            <span className="max-w-40 text-[10px] text-amber-100">
+            <p className="mt-1 truncate text-[9px] text-zinc-400">
               {musicMessage}
-            </span>
+            </p>
           )}
         </div>
       )}
@@ -1113,7 +1205,11 @@ export default function App() {
       {gameStarted && !isPaused && !isGameOver && (
         <HUD
           stats={gameStats}
-          inputs={engineRef.current ? engineRef.current.inputs : inputsRef.current}
+          inputs={
+            engineRef.current
+              ? engineRef.current.inputs
+              : inputsRef.current
+          }
           onPause={handlePause}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
@@ -1152,10 +1248,17 @@ export default function App() {
               <div className="w-full max-w-md rounded-2xl border border-cyan-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">Multiplayer</h2>
-                  <button onClick={() => setShowMultiplayer(false)} className="rounded-lg bg-slate-800 px-3 py-2">✕</button>
+                  <button
+                    onClick={() => setShowMultiplayer(false)}
+                    className="rounded-lg bg-slate-800 px-3 py-2"
+                  >
+                    ✕
+                  </button>
                 </div>
 
-                <p className="mb-3 text-sm text-slate-300">Create a private room or join a friend. Maximum 4 players.</p>
+                <p className="mb-3 text-sm text-slate-300">
+                  Create a private room or join a friend. Maximum 4 players.
+                </p>
 
                 <div className="mb-4 grid grid-cols-2 gap-2">
                   <button
@@ -1163,16 +1266,25 @@ export default function App() {
                       multiplayerModeRef.current = 'race';
                       setMultiplayerMode('race');
                     }}
-                    className={`rounded-xl border p-3 font-bold ${multiplayerMode === 'race' ? 'border-cyan-300 bg-cyan-900/70' : 'border-slate-700 bg-slate-900'}`}
+                    className={`rounded-xl border p-3 font-bold ${
+                      multiplayerMode === 'race'
+                        ? 'border-cyan-300 bg-cyan-900/70'
+                        : 'border-slate-700 bg-slate-900'
+                    }`}
                   >
                     🏁 Friends Race
                   </button>
+
                   <button
                     onClick={() => {
                       multiplayerModeRef.current = 'free-ride';
                       setMultiplayerMode('free-ride');
                     }}
-                    className={`rounded-xl border p-3 font-bold ${multiplayerMode === 'free-ride' ? 'border-cyan-300 bg-cyan-900/70' : 'border-slate-700 bg-slate-900'}`}
+                    className={`rounded-xl border p-3 font-bold ${
+                      multiplayerMode === 'free-ride'
+                        ? 'border-cyan-300 bg-cyan-900/70'
+                        : 'border-slate-700 bg-slate-900'
+                    }`}
                   >
                     🌿 Free Ride
                   </button>
@@ -1180,21 +1292,38 @@ export default function App() {
 
                 {!activeRoom ? (
                   <>
-                    <button onClick={createRoom} disabled={isConnecting} className="mb-3 w-full rounded-xl bg-cyan-600 p-3 font-bold disabled:opacity-50">
+                    <button
+                      onClick={createRoom}
+                      disabled={isConnecting}
+                      className="mb-3 w-full rounded-xl bg-cyan-600 p-3 font-bold disabled:opacity-50"
+                    >
                       {isConnecting ? 'Connecting...' : 'Create Private Room'}
                     </button>
 
-                    <div className="my-3 text-center text-xs text-slate-400">OR JOIN FRIEND</div>
+                    <div className="my-3 text-center text-xs text-slate-400">
+                      OR JOIN FRIEND
+                    </div>
 
                     <input
                       value={roomCode}
-                      onChange={(event) => setRoomCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
+                      onChange={(event) =>
+                        setRoomCode(
+                          event.target.value
+                            .toUpperCase()
+                            .replace(/[^A-Z0-9]/g, '')
+                            .slice(0, 8)
+                        )
+                      }
                       placeholder="Enter room code"
                       maxLength={8}
                       className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-center text-lg uppercase tracking-[0.2em] text-white outline-none focus:border-cyan-300"
                     />
 
-                    <button onClick={joinRoom} disabled={isConnecting} className="w-full rounded-xl bg-indigo-600 p-3 font-bold disabled:opacity-50">
+                    <button
+                      onClick={joinRoom}
+                      disabled={isConnecting}
+                      className="w-full rounded-xl bg-indigo-600 p-3 font-bold disabled:opacity-50"
+                    >
                       Join Room
                     </button>
                   </>
@@ -1202,16 +1331,27 @@ export default function App() {
                   <>
                     <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/40 p-4 text-center">
                       <p className="text-sm text-emerald-200">ROOM CODE</p>
-                      <p className="my-2 text-3xl font-black tracking-[0.25em]">{activeRoom}</p>
+                      <p className="my-2 text-3xl font-black tracking-[0.25em]">
+                        {activeRoom}
+                      </p>
 
                       <button
                         onClick={() => {
                           if (navigator.clipboard?.writeText) {
-                            navigator.clipboard.writeText(activeRoom)
-                              .then(() => setMultiplayerMessage('Room code copied.'))
-                              .catch(() => setMultiplayerMessage(`Share code: ${activeRoom}`));
+                            navigator.clipboard
+                              .writeText(activeRoom)
+                              .then(() =>
+                                setMultiplayerMessage('Room code copied.')
+                              )
+                              .catch(() =>
+                                setMultiplayerMessage(
+                                  `Share code: ${activeRoom}`
+                                )
+                              );
                           } else {
-                            setMultiplayerMessage(`Share code: ${activeRoom}`);
+                            setMultiplayerMessage(
+                              `Share code: ${activeRoom}`
+                            );
                           }
                         }}
                         className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold"
@@ -1219,16 +1359,29 @@ export default function App() {
                         Copy Room Code
                       </button>
 
-                      <p className="mt-3 text-sm">Players connected: {playerCount}/4</p>
+                      <p className="mt-3 text-sm">
+                        Players connected: {playerCount}/4
+                      </p>
                     </div>
 
-                    <p className="mt-3 text-sm text-slate-300">Close this panel and start the ride from the existing garage screen.</p>
-                    <button onClick={leaveRoom} className="mt-4 w-full rounded-xl bg-red-700 p-3 font-bold">Leave Room</button>
+                    <p className="mt-3 text-sm text-slate-300">
+                      Close this panel and start the ride from the existing garage screen.
+                    </p>
+
+                    <button
+                      onClick={leaveRoom}
+                      className="mt-4 w-full rounded-xl bg-red-700 p-3 font-bold"
+                    >
+                      Leave Room
+                    </button>
                   </>
                 )}
 
                 {multiplayerMessage && (
-                  <p className="mt-4 break-words text-center text-sm text-cyan-200" role="status">
+                  <p
+                    className="mt-4 break-words text-center text-sm text-cyan-200"
+                    role="status"
+                  >
                     {multiplayerMessage}
                   </p>
                 )}
@@ -1241,21 +1394,35 @@ export default function App() {
               <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-emerald-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">👥 Friends</h2>
-                  <button onClick={() => setShowFriends(false)} className="rounded-lg bg-slate-800 px-3 py-2">✕</button>
+                  <button
+                    onClick={() => setShowFriends(false)}
+                    className="rounded-lg bg-slate-800 px-3 py-2"
+                  >
+                    ✕
+                  </button>
                 </div>
 
                 {!username ? (
                   <>
-                    <p className="mb-3 text-sm text-slate-300">Set a username to use friends and room invites.</p>
+                    <p className="mb-3 text-sm text-slate-300">
+                      Set a username to use friends and room invites.
+                    </p>
+
                     <input
                       value={usernameInput}
-                      onChange={(event) => setUsernameInput(event.target.value)}
+                      onChange={(event) =>
+                        setUsernameInput(event.target.value)
+                      }
                       placeholder="Choose username (3–16 chars)"
                       maxLength={16}
                       className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-white outline-none focus:border-emerald-300"
                     />
 
-                    <button onClick={setMyUsername} disabled={isSettingUsername} className="w-full rounded-xl bg-emerald-600 p-3 font-bold disabled:opacity-50">
+                    <button
+                      onClick={setMyUsername}
+                      disabled={isSettingUsername}
+                      className="w-full rounded-xl bg-emerald-600 p-3 font-bold disabled:opacity-50"
+                    >
                       {isSettingUsername ? 'Connecting...' : 'Set Username'}
                     </button>
                   </>
@@ -1263,85 +1430,184 @@ export default function App() {
                   <>
                     <div className="mb-4 rounded-xl bg-slate-900 p-3">
                       <p className="text-xs text-slate-400">YOUR USERNAME</p>
-                      <p className="text-lg font-bold text-emerald-300">{username}</p>
+                      <p className="text-lg font-bold text-emerald-300">
+                        {username}
+                      </p>
                     </div>
 
                     <div className="mb-5">
                       <h3 className="mb-2 font-bold">Add Friend</h3>
+
                       <div className="flex gap-2">
                         <input
                           value={friendInput}
-                          onChange={(event) => setFriendInput(event.target.value)}
+                          onChange={(event) =>
+                            setFriendInput(event.target.value)
+                          }
                           placeholder="Friend username"
                           maxLength={16}
                           className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900 p-3 text-white"
                         />
-                        <button onClick={addFriend} className="rounded-xl bg-indigo-600 px-4 font-bold">Add</button>
+
+                        <button
+                          onClick={addFriend}
+                          className="rounded-xl bg-indigo-600 px-4 font-bold"
+                        >
+                          Add
+                        </button>
                       </div>
-                      <p className="mt-2 text-xs text-slate-400">Friend request ayakkaan avar online aayirikkanam.</p>
+
+                      <p className="mt-2 text-xs text-slate-400">
+                        Friend request ayakkaan avar online aayirikkanam.
+                      </p>
                     </div>
 
                     <div className="mb-5">
-                      <h3 className="mb-2 font-bold">Incoming Requests ({friendRequests.length})</h3>
+                      <h3 className="mb-2 font-bold">
+                        Incoming Requests ({friendRequests.length})
+                      </h3>
+
                       {friendRequests.length === 0 ? (
-                        <p className="text-sm text-slate-400">No incoming requests.</p>
-                      ) : friendRequests.map((request) => (
-                        <div key={request} className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3">
-                          <span className="break-all">{request}</span>
-                          <div className="flex gap-2">
-                            <button onClick={() => respondToFriendRequest(request, true)} className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold">Accept</button>
-                            <button onClick={() => respondToFriendRequest(request, false)} className="rounded-lg bg-red-800 px-3 py-2 text-sm font-bold">Decline</button>
+                        <p className="text-sm text-slate-400">
+                          No incoming requests.
+                        </p>
+                      ) : (
+                        friendRequests.map((request) => (
+                          <div
+                            key={request}
+                            className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3"
+                          >
+                            <span className="break-all">{request}</span>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() =>
+                                  respondToFriendRequest(request, true)
+                                }
+                                className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold"
+                              >
+                                Accept
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  respondToFriendRequest(request, false)
+                                }
+                                className="rounded-lg bg-red-800 px-3 py-2 text-sm font-bold"
+                              >
+                                Decline
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
 
                     <div className="mb-5">
-                      <h3 className="mb-2 font-bold">My Friends ({friends.length})</h3>
+                      <h3 className="mb-2 font-bold">
+                        My Friends ({friends.length})
+                      </h3>
+
                       {friends.length === 0 ? (
-                        <p className="text-sm text-slate-400">Friends list empty.</p>
-                      ) : friends.map((friend) => (
-                        <div key={friend.username} className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3">
-                          <div className="min-w-0">
-                            <p className="break-all font-semibold">{friend.username}</p>
-                            <p className={`text-xs ${friend.online ? 'text-emerald-300' : 'text-slate-500'}`}>
-                              {friend.online ? '● Online' : '○ Offline'}
-                            </p>
-                          </div>
-                          <button
-                            disabled={!friend.online || !activeRoom}
-                            onClick={() => inviteFriendToRoom(friend.username)}
-                            className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-40"
+                        <p className="text-sm text-slate-400">
+                          Friends list empty.
+                        </p>
+                      ) : (
+                        friends.map((friend) => (
+                          <div
+                            key={friend.username}
+                            className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3"
                           >
-                            Invite
-                          </button>
-                        </div>
-                      ))}
+                            <div className="min-w-0">
+                              <p className="break-all font-semibold">
+                                {friend.username}
+                              </p>
+
+                              <p
+                                className={`text-xs ${
+                                  friend.online
+                                    ? 'text-emerald-300'
+                                    : 'text-slate-500'
+                                }`}
+                              >
+                                {friend.online ? '● Online' : '○ Offline'}
+                              </p>
+                            </div>
+
+                            <button
+                              disabled={!friend.online || !activeRoom}
+                              onClick={() =>
+                                inviteFriendToRoom(friend.username)
+                              }
+                              className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-40"
+                            >
+                              Invite
+                            </button>
+                          </div>
+                        ))
+                      )}
+
                       {!activeRoom && friends.length > 0 && (
-                        <p className="mt-2 text-xs text-slate-400">Invite button use cheyyaan Multiplayer-il room create/join cheyyu.</p>
+                        <p className="mt-2 text-xs text-slate-400">
+                          Invite button use cheyyaan Multiplayer-il room create/join cheyyu.
+                        </p>
                       )}
                     </div>
 
                     <div>
-                      <h3 className="mb-2 font-bold">Room Invites ({roomInvites.length})</h3>
+                      <h3 className="mb-2 font-bold">
+                        Room Invites ({roomInvites.length})
+                      </h3>
+
                       {roomInvites.length === 0 ? (
-                        <p className="text-sm text-slate-400">No pending room invites.</p>
-                      ) : roomInvites.map((invite) => (
-                        <div key={invite.inviteId} className="mb-2 rounded-xl bg-slate-900 p-3">
-                          <p className="mb-1 font-semibold">{invite.from} invited you</p>
-                          <p className="mb-3 text-xs text-slate-400">Room {invite.roomCode} · {invite.mode}</p>
-                          <div className="flex gap-2">
-                            <button onClick={() => respondToRoomInvite(invite, true)} className="flex-1 rounded-lg bg-emerald-700 p-2 font-bold">Accept</button>
-                            <button onClick={() => respondToRoomInvite(invite, false)} className="flex-1 rounded-lg bg-red-800 p-2 font-bold">Decline</button>
+                        <p className="text-sm text-slate-400">
+                          No pending room invites.
+                        </p>
+                      ) : (
+                        roomInvites.map((invite) => (
+                          <div
+                            key={invite.inviteId}
+                            className="mb-2 rounded-xl bg-slate-900 p-3"
+                          >
+                            <p className="mb-1 font-semibold">
+                              {invite.from} invited you
+                            </p>
+
+                            <p className="mb-3 text-xs text-slate-400">
+                              Room {invite.roomCode} · {invite.mode}
+                            </p>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() =>
+                                  respondToRoomInvite(invite, true)
+                                }
+                                className="flex-1 rounded-lg bg-emerald-700 p-2 font-bold"
+                              >
+                                Accept
+                              </button>
+
+                              <button
+                                onClick={() =>
+                                  respondToRoomInvite(invite, false)
+                                }
+                                className="flex-1 rounded-lg bg-red-800 p-2 font-bold"
+                              >
+                                Decline
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
                     </div>
                   </>
                 )}
 
                 {friendsMessage && (
-                  <p className="mt-4 break-words rounded-lg bg-slate-900 p-3 text-sm text-cyan-200" role="status">
+                  <p
+                    className="mt-4 break-words rounded-lg bg-slate-900 p-3 text-sm text-cyan-200"
+                    role="status"
+                  >
                     {friendsMessage}
                   </p>
                 )}
