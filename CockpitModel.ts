@@ -3,46 +3,34 @@ import { MotorcycleConfig } from './motorcycles';
 import { createMirrorReflectionTexture } from './textures';
 
 export class CockpitModel {
-  public group: THREE.Group;
-  public handlebarsGroup: THREE.Group;
+  public group = new THREE.Group();
+  public handlebarsGroup = new THREE.Group();
   public currentBike!: MotorcycleConfig;
-
-  // Dynamic canvas for live instrument cluster
   public dashCanvas: HTMLCanvasElement;
   public dashTexture: THREE.CanvasTexture;
   private dashCtx: CanvasRenderingContext2D;
-
   private rightGripMesh?: THREE.Mesh;
   private rightLeverMesh?: THREE.Mesh;
   private leftLeverMesh?: THREE.Mesh;
 
   constructor(bike: MotorcycleConfig) {
-    this.group = new THREE.Group();
-    this.handlebarsGroup = new THREE.Group();
     this.group.add(this.handlebarsGroup);
-
     this.dashCanvas = document.createElement('canvas');
     this.dashCanvas.width = 512;
     this.dashCanvas.height = 256;
     this.dashCtx = this.dashCanvas.getContext('2d')!;
     this.dashTexture = new THREE.CanvasTexture(this.dashCanvas);
     this.dashTexture.colorSpace = THREE.SRGBColorSpace;
-
+    this.dashTexture.anisotropy = 4;
     this.setMotorcycle(bike);
   }
 
   public setMotorcycle(bike: MotorcycleConfig) {
     this.currentBike = bike;
-
-    // Clear existing cockpit parts
-    while (this.group.children.length > 0) {
-      this.group.remove(this.group.children[0]);
-    }
-    while (this.handlebarsGroup.children.length > 0) {
-      this.handlebarsGroup.remove(this.handlebarsGroup.children[0]);
-    }
+    this.group.clear();
+    this.handlebarsGroup.clear();
     this.group.add(this.handlebarsGroup);
-
+    this.rightGripMesh = this.rightLeverMesh = this.leftLeverMesh = undefined;
     this.buildCockpit();
     this.updateDash(0, 0.2, 1, 0);
   }
@@ -50,701 +38,224 @@ export class CockpitModel {
   private buildCockpit() {
     const bike = this.currentBike;
     const mirrorTex = createMirrorReflectionTexture();
-
-    // -------------------------------------------------------------
-    // PBR REALISTIC AUTOMOTIVE MATERIALS
-    // -------------------------------------------------------------
-    const chromeMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      metalness: 0.98,
-      roughness: 0.08,
+    const chrome = new THREE.MeshStandardMaterial({ color: 0xdce3e9, metalness: 0.94, roughness: 0.19 });
+    const alloy = new THREE.MeshStandardMaterial({ color: 0x84919e, metalness: 0.86, roughness: 0.28 });
+    const black = new THREE.MeshStandardMaterial({ color: 0x171a1f, metalness: 0.24, roughness: 0.58 });
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x090b0e, roughness: 0.96 });
+    const paint = new THREE.MeshPhysicalMaterial({
+      color: bike.cockpit.primaryColor, metalness: 0.48, roughness: 0.23,
+      clearcoat: 0.9, clearcoatRoughness: 0.16,
     });
+    const accent = new THREE.MeshStandardMaterial({ color: bike.cockpit.accentColor, metalness: 0.82, roughness: 0.24 });
+    const mirrorGlass = new THREE.MeshStandardMaterial({ map: mirrorTex, metalness: 0.72, roughness: 0.2 });
+    const screen = new THREE.MeshBasicMaterial({ map: this.dashTexture });
+    const classic = bike.cockpit.dashType === 'classic-nacelle' || bike.cockpit.dashType === 'classic-500';
+    const barMat = bike.cockpit.handlebarType === 'classic-chrome' || bike.cockpit.handlebarType === 'swept-touring' ? chrome : black;
 
-    const brushedAlloyMat = new THREE.MeshStandardMaterial({
-      color: 0x94a3b8,
-      metalness: 0.88,
-      roughness: 0.24,
-    });
+    // Sculpted fuel tank and polished cap.
+    const tankGeo = new THREE.SphereGeometry(0.25, 32, 24);
+    tankGeo.scale(1.05, 0.76, 1.65);
+    const tank = new THREE.Mesh(tankGeo, paint);
+    tank.position.set(0, -0.32, -0.38);
+    this.group.add(tank);
 
-    const satinBlackMat = new THREE.MeshStandardMaterial({
-      color: 0x181a1f,
-      metalness: 0.35,
-      roughness: 0.5,
-    });
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.046, 0.012, 32), chrome);
+    cap.position.set(0, -0.205, -0.35);
+    cap.rotation.x = -0.32;
+    this.group.add(cap);
+    const capInner = new THREE.Mesh(new THREE.CylinderGeometry(0.029, 0.029, 0.014, 24),
+      new THREE.MeshStandardMaterial({ color: 0x3a4148, metalness: 0.8, roughness: 0.3 }));
+    capInner.position.y = 0.009;
+    cap.add(capInner);
 
-    const gripRubberMat = new THREE.MeshStandardMaterial({
-      color: 0x121316,
-      metalness: 0.04,
-      roughness: 0.92,
-    });
-
-    const kneePadMat = new THREE.MeshStandardMaterial({
-      color: 0x15171b,
-      metalness: 0.02,
-      roughness: 0.94,
-    });
-
-    // Automotive high-gloss paint with clearcoat
-    const paintMat = new THREE.MeshPhysicalMaterial({
-      color: bike.cockpit.primaryColor,
-      metalness: 0.45,
-      roughness: 0.18,
-      clearcoat: 0.85,
-      clearcoatRoughness: 0.1,
-    });
-
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: bike.cockpit.accentColor,
-      metalness: 0.85,
-      roughness: 0.18,
-    });
-
-    const mirrorGlassMat = new THREE.MeshStandardMaterial({
-      map: mirrorTex,
-      metalness: 0.95,
-      roughness: 0.06,
-    });
-
-    const screenMat = new THREE.MeshBasicMaterial({
-      map: this.dashTexture,
-    });
-
-    const isClassicNacelle = bike.cockpit.dashType === 'classic-nacelle' || bike.cockpit.dashType === 'classic-500';
-    const isChromeBar = bike.cockpit.handlebarType === 'classic-chrome' || bike.cockpit.handlebarType === 'swept-touring';
-    const barMaterial = isChromeBar ? chromeMat : satinBlackMat;
-
-    // ========================================================
-    // 1. SCULPTED FUEL TANK TOP (CURVED REALISTIC GEOMETRY)
-    // ========================================================
-    // Teardrop contoured tank top visible in the lower center
-    const tankGeo = new THREE.SphereGeometry(0.24, 24, 18);
-    tankGeo.scale(1.0, 0.72, 1.6);
-    const tankMesh = new THREE.Mesh(tankGeo, paintMat);
-    tankMesh.position.set(0, -0.32, -0.38);
-    this.group.add(tankMesh);
-
-    // Chrome Monza flip-top fuel cap with knurled ring and hinge
-    const capBaseGeo = new THREE.CylinderGeometry(0.042, 0.044, 0.012, 24);
-    const capBase = new THREE.Mesh(capBaseGeo, brushedAlloyMat);
-    capBase.position.set(0, -0.21, -0.34);
-    capBase.rotation.x = -0.32;
-
-    const capLidGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.014, 24);
-    const capLid = new THREE.Mesh(capLidGeo, chromeMat);
-    capLid.position.set(0, 0.01, 0);
-
-    const keyholeGeo = new THREE.BoxGeometry(0.004, 0.016, 0.002);
-    const keyhole = new THREE.Mesh(keyholeGeo, satinBlackMat);
-    keyhole.position.set(0, 0.018, 0);
-    keyhole.rotation.x = Math.PI / 2;
-
-    capBase.add(capLid, keyhole);
-    this.group.add(capBase);
-
-    // Chrome Center Tank Tie-Down Strap / Console
-    const strapGeo = new THREE.BoxGeometry(0.032, 0.006, 0.46);
-    const strapMesh = new THREE.Mesh(strapGeo, chromeMat);
-    strapMesh.position.set(0, -0.215, -0.38);
-    strapMesh.rotation.x = -0.32;
-    this.group.add(strapMesh);
-
-    // Contoured Rubber Knee Grip Pads (Ribbed traction pads on tank shoulders)
-    const padGeo = new THREE.BoxGeometry(0.018, 0.12, 0.22);
-    const leftPad = new THREE.Mesh(padGeo, kneePadMat);
-    leftPad.position.set(-0.19, -0.28, -0.36);
-    leftPad.rotation.z = 0.22;
-
-    const rightPad = leftPad.clone();
-    rightPad.position.x = 0.19;
-    rightPad.rotation.z = -0.22;
-    this.group.add(leftPad, rightPad);
-
-    // Royal Enfield Metallic 3D Winged Tank Badges
-    const badgeGeo = new THREE.BoxGeometry(0.012, 0.038, 0.11);
-    const leftBadge = new THREE.Mesh(badgeGeo, accentMat);
-    leftBadge.position.set(-0.2, -0.24, -0.36);
-    leftBadge.rotation.z = 0.18;
-
-    const rightBadge = leftBadge.clone();
-    rightBadge.position.x = 0.2;
-    rightBadge.rotation.z = -0.18;
-    this.group.add(leftBadge, rightBadge);
-
-    // ========================================================
-    // 2. UPPER TRIPLE CLAMP / FORK YOKE & STEERING STEM
-    // ========================================================
-    // Machined aluminum top yoke bridge
-    const yokeGeo = new THREE.BoxGeometry(0.44, 0.032, 0.09);
-    const yokeMesh = new THREE.Mesh(yokeGeo, brushedAlloyMat);
-    yokeMesh.position.set(0, -0.17, -0.48);
-    yokeMesh.rotation.x = 0.22;
-    this.handlebarsGroup.add(yokeMesh);
-
-    // Central Hexagonal Steering Stem Crown Nut
-    const stemNutGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.018, 6);
-    const stemNut = new THREE.Mesh(stemNutGeo, chromeMat);
-    stemNut.position.set(0, -0.15, -0.48);
-    stemNut.rotation.x = 0.22;
-    this.handlebarsGroup.add(stemNut);
-
-    // Fork Stanchion Caps (Gold on Himalayan 450 Showa USD forks, Chrome on classic)
-    const forkCapGeo = new THREE.CylinderGeometry(0.022, 0.022, 0.03, 16);
-    const forkCapMat = bike.id === 'himalayan-450' ? accentMat : chromeMat;
-    const leftForkCap = new THREE.Mesh(forkCapGeo, forkCapMat);
-    leftForkCap.position.set(-0.17, -0.15, -0.48);
-    leftForkCap.rotation.x = 0.22;
-
-    const rightForkCap = leftForkCap.clone();
-    rightForkCap.position.x = 0.17;
-    this.handlebarsGroup.add(leftForkCap, rightForkCap);
-
-    // Ignition Key Barrel & Stainless Key Bezel
-    const ignGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.025, 16);
-    const ignMesh = new THREE.Mesh(ignGeo, satinBlackMat);
-    ignMesh.position.set(0, -0.155, -0.44);
-    ignMesh.rotation.x = 0.22;
-
-    // Small brass ignition key inserted
-    const keyGeo = new THREE.BoxGeometry(0.014, 0.012, 0.004);
-    const keyMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.9, roughness: 0.2 });
-    const keyMesh = new THREE.Mesh(keyGeo, keyMat);
-    keyMesh.position.set(0, 0.016, 0);
-    ignMesh.add(keyMesh);
-    this.handlebarsGroup.add(ignMesh);
-
-    // ========================================================
-    // 3. HANDLEBARS, RISERS, SWITCHGEAR & CONTROLS
-    // ========================================================
-    // Twin Handlebar Riser Clamp Blocks
-    const riserGeo = new THREE.BoxGeometry(0.034, 0.045, 0.036);
-    const leftRiser = new THREE.Mesh(riserGeo, brushedAlloyMat);
-    leftRiser.position.set(-0.09, -0.14, -0.46);
-    leftRiser.rotation.x = 0.22;
-
-    const rightRiser = leftRiser.clone();
-    rightRiser.position.x = 0.09;
-    this.handlebarsGroup.add(leftRiser, rightRiser);
-
-    // Chrome Riser Cap Hex Bolts
-    const boltGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.006, 6);
-    [-0.09, 0.09].forEach((rx) => {
-      const b1 = new THREE.Mesh(boltGeo, chromeMat);
-      b1.position.set(rx, -0.115, -0.47);
-      const b2 = new THREE.Mesh(boltGeo, chromeMat);
-      b2.position.set(rx, -0.115, -0.45);
-      this.handlebarsGroup.add(b1, b2);
-    });
-
-    // Sweeping Tubular Handlebar
-    // Center straight section
-    const centerBarGeo = new THREE.CylinderGeometry(0.013, 0.013, 0.34, 16);
-    centerBarGeo.rotateZ(Math.PI / 2);
-    const centerBar = new THREE.Mesh(centerBarGeo, barMaterial);
-    centerBar.position.set(0, -0.13, -0.46);
-    this.handlebarsGroup.add(centerBar);
-
-    // Swept side wings (drops slightly and angles back toward rider)
-    const wingGeo = new THREE.CylinderGeometry(0.013, 0.013, 0.24, 16);
-    wingGeo.rotateZ(Math.PI / 2.3);
-
-    const leftWing = new THREE.Mesh(wingGeo, barMaterial);
-    leftWing.position.set(-0.24, -0.135, -0.45);
-    leftWing.rotation.y = 0.14;
-
-    const rightWing = new THREE.Mesh(wingGeo, barMaterial);
-    rightWing.position.set(0.24, -0.135, -0.45);
-    rightWing.rotation.y = -0.14;
-    this.handlebarsGroup.add(leftWing, rightWing);
-
-    // Textured Diamond Rubber Hand Grips
-    const gripGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.14, 20);
-    gripGeo.rotateZ(Math.PI / 2);
-
-    const leftGrip = new THREE.Mesh(gripGeo, gripRubberMat);
-    leftGrip.position.set(-0.35, -0.14, -0.435);
-    this.handlebarsGroup.add(leftGrip);
-
-    this.rightGripMesh = new THREE.Mesh(gripGeo, gripRubberMat);
-    this.rightGripMesh.position.set(0.35, -0.14, -0.435);
-    this.handlebarsGroup.add(this.rightGripMesh);
-
-    // Weighted Aluminum Bar Ends
-    const barEndGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.025, 16);
-    barEndGeo.rotateZ(Math.PI / 2);
-    const leftBarEnd = new THREE.Mesh(barEndGeo, brushedAlloyMat);
-    leftBarEnd.position.set(-0.43, -0.14, -0.435);
-    const rightBarEnd = leftBarEnd.clone();
-    rightBarEnd.position.x = 0.43;
-    this.handlebarsGroup.add(leftBarEnd, rightBarEnd);
-
-    // Control Switchgear Pods (Satin Black)
-    const switchGeo = new THREE.BoxGeometry(0.046, 0.042, 0.046);
-
-    // Right switchgear: Red engine kill rocker switch + Starter push button
-    const rightSwitch = new THREE.Mesh(switchGeo, satinBlackMat);
-    rightSwitch.position.set(0.265, -0.135, -0.445);
-
-    const killRockerGeo = new THREE.BoxGeometry(0.018, 0.012, 0.016);
-    const killRockerMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 }); // Red rocker
-    const killRocker = new THREE.Mesh(killRockerGeo, killRockerMat);
-    killRocker.position.set(0, 0.024, 0.005);
-    rightSwitch.add(killRocker);
-
-    // Left switchgear: Pass/beam toggle + Turn indicator + Horn button
-    const leftSwitch = new THREE.Mesh(switchGeo, satinBlackMat);
-    leftSwitch.position.set(-0.265, -0.135, -0.445);
-
-    const hornButtonGeo = new THREE.BoxGeometry(0.014, 0.012, 0.014);
-    const hornButtonMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b }); // Amber horn push
-    const hornButton = new THREE.Mesh(hornButtonGeo, hornButtonMat);
-    hornButton.position.set(0, -0.015, 0.02);
-    leftSwitch.add(hornButton);
-
-    this.handlebarsGroup.add(leftSwitch, rightSwitch);
-
-    // Front Brake Master Cylinder with Translucent DOT4 Fluid Inspection Window
-    const masterCylGeo = new THREE.BoxGeometry(0.042, 0.038, 0.042);
-    const masterCyl = new THREE.Mesh(masterCylGeo, brushedAlloyMat);
-    masterCyl.position.set(0.255, -0.11, -0.465);
-
-    // Glass inspection window with amber brake fluid
-    const fluidSightGeo = new THREE.CircleGeometry(0.01, 12);
-    fluidSightGeo.rotateY(Math.PI / 2);
-    const fluidSightMat = new THREE.MeshBasicMaterial({ color: 0xd97706 });
-    const fluidSight = new THREE.Mesh(fluidSightGeo, fluidSightMat);
-    fluidSight.position.set(0.22, 0, 0);
-    masterCyl.add(fluidSight);
-    this.handlebarsGroup.add(masterCyl);
-
-    // Ergonomic Aluminum Brake and Clutch Levers
-    const leverGeo = new THREE.BoxGeometry(0.13, 0.012, 0.016);
-    const leverMaterial = isChromeBar ? chromeMat : brushedAlloyMat;
-
-    this.leftLeverMesh = new THREE.Mesh(leverGeo, leverMaterial);
-    this.leftLeverMesh.position.set(-0.32, -0.15, -0.47);
-    this.leftLeverMesh.rotation.y = 0.16;
-    this.handlebarsGroup.add(this.leftLeverMesh);
-
-    this.rightLeverMesh = new THREE.Mesh(leverGeo, leverMaterial);
-    this.rightLeverMesh.position.set(0.32, -0.15, -0.47);
-    this.rightLeverMesh.rotation.y = -0.16;
-    this.handlebarsGroup.add(this.rightLeverMesh);
-
-    // ========================================================
-    // 4. REARVIEW MIRRORS (OUTER CORNERS, CLEAR CENTER ROAD VIEW)
-    // ========================================================
-    const mirrorStemGeo = new THREE.CylinderGeometry(0.006, 0.007, 0.22, 8);
-    const mirrorStemMat = isChromeBar ? chromeMat : satinBlackMat;
-
-    if (bike.cockpit.mirrorType === 'vintage-chrome-round') {
-      // Vintage Round Chrome Mirrors (Bullet 350, Classic 350, Bullet 500)
-      const mirrorShellGeo = new THREE.CylinderGeometry(0.054, 0.054, 0.018, 20);
-      const mirrorGlassGeo = new THREE.CircleGeometry(0.051, 20);
-
-      // Left Mirror
-      const leftStem = new THREE.Mesh(mirrorStemGeo, mirrorStemMat);
-      leftStem.position.set(-0.35, -0.04, -0.47);
-      leftStem.rotation.z = -Math.PI * 0.28;
-      this.handlebarsGroup.add(leftStem);
-
-      const leftMirror = new THREE.Mesh(mirrorShellGeo, chromeMat);
-      leftMirror.position.set(-0.44, 0.06, -0.46);
-      leftMirror.rotation.x = Math.PI / 2;
-      leftMirror.rotation.y = 0.24;
-      this.handlebarsGroup.add(leftMirror);
-
-      const leftGlass = new THREE.Mesh(mirrorGlassGeo, mirrorGlassMat);
-      leftGlass.position.set(-0.44, 0.06, -0.448);
-      leftGlass.rotation.y = 0.24;
-      this.handlebarsGroup.add(leftGlass);
-
-      // Right Mirror
-      const rightStem = new THREE.Mesh(mirrorStemGeo, mirrorStemMat);
-      rightStem.position.set(0.35, -0.04, -0.47);
-      rightStem.rotation.z = Math.PI * 0.28;
-      this.handlebarsGroup.add(rightStem);
-
-      const rightMirror = leftMirror.clone();
-      rightMirror.position.x = 0.44;
-      rightMirror.rotation.y = -0.24;
-      this.handlebarsGroup.add(rightMirror);
-
-      const rightGlass = leftGlass.clone();
-      rightGlass.position.x = 0.44;
-      rightGlass.rotation.y = -0.24;
-      this.handlebarsGroup.add(rightGlass);
-
-    } else {
-      // Modern Angular Roadster Mirrors (Hunter, Himalayan, Guerrilla)
-      const mirrorShellGeo = new THREE.BoxGeometry(0.12, 0.07, 0.018);
-      const mirrorGlassGeo = new THREE.PlaneGeometry(0.11, 0.062);
-
-      const leftStem = new THREE.Mesh(mirrorStemGeo, mirrorStemMat);
-      leftStem.position.set(-0.35, -0.04, -0.47);
-      leftStem.rotation.z = -Math.PI * 0.28;
-      this.handlebarsGroup.add(leftStem);
-
-      const leftShell = new THREE.Mesh(mirrorShellGeo, satinBlackMat);
-      leftShell.position.set(-0.44, 0.06, -0.46);
-      leftShell.rotation.y = 0.26;
-      this.handlebarsGroup.add(leftShell);
-
-      const leftGlass = new THREE.Mesh(mirrorGlassGeo, mirrorGlassMat);
-      leftGlass.position.set(-0.44, 0.06, -0.448);
-      leftGlass.rotation.y = 0.26;
-      this.handlebarsGroup.add(leftGlass);
-
-      const rightStem = new THREE.Mesh(mirrorStemGeo, mirrorStemMat);
-      rightStem.position.set(0.35, -0.04, -0.47);
-      rightStem.rotation.z = Math.PI * 0.28;
-      this.handlebarsGroup.add(rightStem);
-
-      const rightShell = leftShell.clone();
-      rightShell.position.x = 0.44;
-      rightShell.rotation.y = -0.26;
-      this.handlebarsGroup.add(rightShell);
-
-      const rightGlass = leftGlass.clone();
-      rightGlass.position.x = 0.44;
-      rightGlass.rotation.y = -0.26;
-      this.handlebarsGroup.add(rightGlass);
+    // Tank centre strap and side knee pads.
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.006, 0.42), chrome);
+    strap.position.set(0, -0.215, -0.38);
+    strap.rotation.x = -0.32;
+    this.group.add(strap);
+    const padGeo = new THREE.BoxGeometry(0.018, 0.105, 0.2);
+    for (const side of [-1, 1]) {
+      const pad = new THREE.Mesh(padGeo, rubber);
+      pad.position.set(side * 0.19, -0.285, -0.36);
+      pad.rotation.z = -side * 0.2;
+      this.group.add(pad);
+      const badge = new THREE.Mesh(new THREE.BoxGeometry(0.009, 0.026, 0.085), accent);
+      badge.position.set(side * 0.205, -0.245, -0.36);
+      badge.rotation.z = -side * 0.18;
+      this.group.add(badge);
     }
 
-    // ========================================================
-    // 5. DASHBOARD INSTRUMENT CLUSTER
-    // ========================================================
-    // Recessed cleanly right in the center, angled towards rider
-    const dashHousingGeo = new THREE.BoxGeometry(0.24, 0.12, 0.028);
-    const dashHousing = new THREE.Mesh(dashHousingGeo, isClassicNacelle ? paintMat : satinBlackMat);
-    dashHousing.position.set(0, -0.11, -0.5);
-    dashHousing.rotation.x = -0.32;
-    this.group.add(dashHousing);
+    // Steering yoke and fork caps.
+    const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.03, 0.085), alloy);
+    yoke.position.set(0, -0.17, -0.48);
+    yoke.rotation.x = 0.22;
+    this.handlebarsGroup.add(yoke);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.018, 8), chrome);
+    stem.position.set(0, -0.15, -0.48);
+    this.handlebarsGroup.add(stem);
+    for (const side of [-1, 1]) {
+      const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.03, 20),
+        bike.id === 'himalayan-450' ? accent : chrome);
+      fork.position.set(side * 0.17, -0.15, -0.48);
+      this.handlebarsGroup.add(fork);
+      const riser = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.045, 0.036), alloy);
+      riser.position.set(side * 0.09, -0.14, -0.46);
+      this.handlebarsGroup.add(riser);
+    }
 
-    // Chrome Bezel Frame around instrument screen
-    const bezelGeo = new THREE.BoxGeometry(0.246, 0.126, 0.008);
-    const bezel = new THREE.Mesh(bezelGeo, chromeMat);
-    bezel.position.set(0, -0.11, -0.495);
+    // Handlebar tube, grips, switch pods and levers.
+    const centreBar = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.36, 20), barMat);
+    centreBar.rotation.z = Math.PI / 2;
+    centreBar.position.set(0, -0.13, -0.46);
+    this.handlebarsGroup.add(centreBar);
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.24, 16), barMat);
+      wing.rotation.set(0, side * 0.14, side * Math.PI / 2.3);
+      wing.position.set(side * 0.24, -0.135, -0.45);
+      this.handlebarsGroup.add(wing);
+      const gripGeo = new THREE.CylinderGeometry(0.019, 0.019, 0.145, 24);
+      gripGeo.rotateZ(Math.PI / 2);
+      const grip = new THREE.Mesh(gripGeo, rubber);
+      grip.position.set(side * 0.35, -0.14, -0.435);
+      this.handlebarsGroup.add(grip);
+      if (side > 0) this.rightGripMesh = grip;
+      const end = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.025, 20), alloy);
+      end.rotation.z = Math.PI / 2;
+      end.position.set(side * 0.44, -0.14, -0.435);
+      this.handlebarsGroup.add(end);
+      const pod = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.044, 0.05), black);
+      pod.position.set(side * 0.265, -0.135, -0.445);
+      this.handlebarsGroup.add(pod);
+      const button = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.012, 0.014),
+        new THREE.MeshBasicMaterial({ color: side > 0 ? 0xdc3030 : 0xe5a52e }));
+      button.position.set(0, 0.025, 0.005);
+      pod.add(button);
+      const lever = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.012, 0.017), chrome);
+      lever.position.set(side * 0.32, -0.15, -0.47);
+      lever.rotation.y = -side * 0.16;
+      this.handlebarsGroup.add(lever);
+      if (side > 0) this.rightLeverMesh = lever;
+      else this.leftLeverMesh = lever;
+    }
+
+    // Rear-view mirrors, with separate glass and shell.
+    const round = bike.cockpit.mirrorType === 'vintage-chrome-round';
+    for (const side of [-1, 1]) {
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.008, 0.22, 10), barMat);
+      stem.position.set(side * 0.38, -0.025, -0.47);
+      stem.rotation.z = -side * 0.42;
+      this.handlebarsGroup.add(stem);
+      const shellGeo = round ? new THREE.CylinderGeometry(0.056, 0.056, 0.02, 32) : new THREE.BoxGeometry(0.13, 0.075, 0.02);
+      const shell = new THREE.Mesh(shellGeo, round ? chrome : black);
+      shell.position.set(side * 0.47, 0.075, -0.46);
+      shell.rotation.x = Math.PI / 2;
+      shell.rotation.y = side * 0.2;
+      this.handlebarsGroup.add(shell);
+      const glassGeo = round ? new THREE.CircleGeometry(0.05, 32) : new THREE.PlaneGeometry(0.115, 0.06);
+      const glass = new THREE.Mesh(glassGeo, mirrorGlass);
+      glass.position.set(side * 0.47, 0.075, -0.447);
+      glass.rotation.y = side * 0.2;
+      this.handlebarsGroup.add(glass);
+    }
+
+    // Instrument cluster housing, bezel and live display.
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.13, 0.03), classic ? paint : black);
+    housing.position.set(0, -0.11, -0.5);
+    housing.rotation.x = -0.32;
+    this.group.add(housing);
+    const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.252, 0.132, 0.008), chrome);
+    bezel.position.set(0, -0.11, -0.481);
     bezel.rotation.x = -0.32;
     this.group.add(bezel);
-
-    // Live Instrument Cluster Texture Display
-    const screenGeo = new THREE.PlaneGeometry(0.235, 0.115);
-    const screenMesh = new THREE.Mesh(screenGeo, screenMat);
-    screenMesh.position.set(0, -0.108, -0.485);
-    screenMesh.rotation.x = -0.32;
-    this.group.add(screenMesh);
+    const display = new THREE.Mesh(new THREE.PlaneGeometry(0.235, 0.115), screen);
+    display.position.set(0, -0.108, -0.475);
+    display.rotation.x = -0.32;
+    this.group.add(display);
   }
 
-  /**
-   * Updates the digital/analog dashboard display on the motorcycle instrument panel in real time.
-   */
   public updateDash(speedKmh: number, rpmNorm: number, gear: number, distanceMeters: number) {
-    const ctx = this.dashCtx;
-    const w = 512;
-    const h = 256;
-    const bike = this.currentBike;
-
-    ctx.clearRect(0, 0, w, h);
-
-    if (bike.cockpit.dashType === 'classic-nacelle' || bike.cockpit.dashType === 'classic-500') {
-      // VINTAGE CASQUETTE ANALOG SPEEDOMETER (Bullet 350, Classic 350, Bullet 500)
-      ctx.fillStyle = '#0f1115';
-      ctx.fillRect(0, 0, w, h);
-
-      // Vintage ivory/cream round dial face
-      const cx = 256;
-      const cy = 132;
-      const radius = 104;
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.fillStyle = '#f9f7f0';
-      ctx.fill();
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = '#c4cdd8'; // Chrome bezel
-      ctx.stroke();
-
-      // Royal Enfield insignia
-      ctx.fillStyle = '#1c1e22';
-      ctx.font = 'bold 15px serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('ROYAL ENFIELD', cx, cy - 45);
-
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillStyle = '#555e6d';
-      ctx.fillText(bike.name.toUpperCase(), cx, cy - 30);
-
-      // Speed graduations (0 to 140 or 160 km/h)
-      const maxDialSpeed = bike.id === 'bullet-500' ? 160 : 140;
-      const startAngle = Math.PI * 0.75;
-      const endAngle = Math.PI * 2.25;
-
-      ctx.strokeStyle = '#181a1f';
-      ctx.fillStyle = '#181a1f';
-      ctx.lineWidth = 2;
-      for (let s = 0; s <= maxDialSpeed; s += 20) {
-        const ratio = s / maxDialSpeed;
-        const angle = startAngle + ratio * (endAngle - startAngle);
-        const x1 = cx + Math.cos(angle) * (radius - 12);
-        const y1 = cy + Math.sin(angle) * (radius - 12);
-        const x2 = cx + Math.cos(angle) * (radius - 24);
-        const y2 = cy + Math.sin(angle) * (radius - 24);
-
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-
-        const tx = cx + Math.cos(angle) * (radius - 34);
-        const ty = cy + Math.sin(angle) * (radius - 34);
-        ctx.font = 'bold 13px sans-serif';
-        ctx.fillText(`${s}`, tx, ty + 4);
+    const c = this.dashCtx, w = 512, h = 256, bike = this.currentBike;
+    c.clearRect(0, 0, w, h);
+    const classic = bike.cockpit.dashType === 'classic-nacelle' || bike.cockpit.dashType === 'classic-500';
+    const adventure = bike.cockpit.dashType === 'himalayan-411-multi';
+    const tft = bike.cockpit.dashType === 'himalayan-450-tft' || bike.cockpit.dashType === 'guerrilla-tft';
+    const bg = c.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, classic ? '#17191d' : '#0a111b');
+    bg.addColorStop(1, classic ? '#050608' : '#172638');
+    c.fillStyle = bg; c.fillRect(0, 0, w, h);
+    c.textAlign = 'center';
+    if (classic) {
+      const cx = 256, cy = 124, r = 101, max = bike.id === 'bullet-500' ? 160 : 140;
+      c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fillStyle = '#f3f0e6'; c.fill();
+      c.lineWidth = 7; c.strokeStyle = '#b8c1c8'; c.stroke();
+      c.fillStyle = '#20242a'; c.font = 'bold 15px serif'; c.fillText('ROYAL ENFIELD', cx, cy - 48);
+      c.font = 'bold 10px sans-serif'; c.fillText(bike.name.toUpperCase(), cx, cy - 32);
+      for (let s = 0; s <= max; s += 20) {
+        const a = Math.PI * 0.75 + (s / max) * Math.PI * 1.5;
+        c.strokeStyle = '#20242a'; c.lineWidth = 2; c.beginPath();
+        c.moveTo(cx + Math.cos(a) * 78, cy + Math.sin(a) * 78);
+        c.lineTo(cx + Math.cos(a) * 90, cy + Math.sin(a) * 90); c.stroke();
+        c.fillStyle = '#20242a'; c.font = 'bold 12px sans-serif';
+        c.fillText(String(s), cx + Math.cos(a) * 66, cy + Math.sin(a) * 66 + 4);
       }
-
-      // Small digital LCD window for odometer & gear
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillRect(cx - 48, cy + 28, 96, 26);
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 13px monospace';
-      ctx.fillText(`G:${gear} ${(distanceMeters / 1000).toFixed(1)}k`, cx, cy + 46);
-
-      // Red needle indicator
-      const currentRatio = Math.min(1, Math.max(0, speedKmh / maxDialSpeed));
-      const needleAngle = startAngle + currentRatio * (endAngle - startAngle);
-
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(needleAngle);
-      ctx.strokeStyle = '#dc2626'; // Vivid red needle
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(-10, 0);
-      ctx.lineTo(radius - 20, 0);
-      ctx.stroke();
-
-      // Needle center cap
-      ctx.fillStyle = '#1c1e22';
-      ctx.beginPath();
-      ctx.arc(0, 0, 9, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // High visibility speed readout
-      ctx.fillStyle = '#00e5ff';
-      ctx.font = 'bold 24px sans-serif';
-      ctx.fillText(`${Math.round(speedKmh)} KM/H`, cx, 245);
-
-    } else if (bike.cockpit.dashType === 'himalayan-411-multi') {
-      // HIMALAYAN 411: DISTINCT 3-GAUGE ADVENTURE INSTRUMENT PANEL
-      ctx.fillStyle = '#090b10';
-      ctx.fillRect(0, 0, w, h);
-
-      // 1. Left: Main Analog Speedometer
-      const cx1 = 150;
-      const cy1 = 125;
-      const r1 = 80;
-      ctx.beginPath();
-      ctx.arc(cx1, cy1, r1, 0, Math.PI * 2);
-      ctx.fillStyle = '#181c24';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#64748b';
-      ctx.stroke();
-
-      ctx.fillStyle = '#e2e8f0';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('SPEED (KM/H)', cx1, cy1 - 32);
-
-      const needleAngle1 = Math.PI * 0.75 + (Math.min(1, speedKmh / 140)) * Math.PI * 1.5;
-      ctx.save();
-      ctx.translate(cx1, cy1);
-      ctx.rotate(needleAngle1);
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(r1 - 15, 0);
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 28px monospace';
-      ctx.fillText(`${Math.round(speedKmh)}`, cx1, cy1 + 25);
-
-      // 2. Right Top: Smaller Analog Tachometer (RPM x1000)
-      const cx2 = 360;
-      const cy2 = 85;
-      const r2 = 55;
-      ctx.beginPath();
-      ctx.arc(cx2, cy2, r2, 0, Math.PI * 2);
-      ctx.fillStyle = '#181c24';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#64748b';
-      ctx.stroke();
-
-      ctx.fillStyle = '#cbd5e1';
-      ctx.font = 'bold 9px sans-serif';
-      ctx.fillText('RPM x1000', cx2, cy2 - 20);
-
-      const rpmAngle = Math.PI * 0.75 + rpmNorm * Math.PI * 1.5;
-      ctx.save();
-      ctx.translate(cx2, cy2);
-      ctx.rotate(rpmAngle);
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(r2 - 10, 0);
-      ctx.stroke();
-      ctx.restore();
-
-      // 3. Right Bottom: Himalayan Digital Compass & Gear LCD Pod
-      const cx3 = 360;
-      const cy3 = 190;
-      const r3 = 45;
-      ctx.beginPath();
-      ctx.arc(cx3, cy3, r3, 0, Math.PI * 2);
-      ctx.fillStyle = '#1e293b';
-      ctx.fill();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`GEAR: ${gear}`, cx3, cy3 - 10);
-      ctx.fillStyle = '#10b981';
-      ctx.fillText('NW 315°', cx3, cy3 + 12);
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = 'bold 10px monospace';
-      ctx.fillText('24°C ADV', cx3, cy3 + 28);
-
-    } else if (bike.cockpit.dashType === 'himalayan-450-tft' || bike.cockpit.dashType === 'guerrilla-tft') {
-      // HIMALAYAN 450 & GUERRILLA 450: CIRCULAR 4-INCH FULL-COLOR TFT "TRIPPERDASH"
-      ctx.fillStyle = '#0a0d14';
-      ctx.fillRect(0, 0, w, h);
-
-      const cx = 256;
-      const cy = 128;
-      const r = 108;
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = '#0f172a';
-      ctx.fill();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = bike.id === 'guerrilla-450' ? '#facc15' : '#38bdf8';
-      ctx.stroke();
-
-      // Outer dynamic RPM gauge arc
-      const rpmArcStart = Math.PI * 0.75;
-      const rpmArcEnd = rpmArcStart + rpmNorm * Math.PI * 1.5;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r - 8, rpmArcStart, rpmArcEnd);
-      ctx.strokeStyle = rpmNorm > 0.85 ? '#ef4444' : (bike.id === 'guerrilla-450' ? '#f59e0b' : '#00e5ff');
-      ctx.lineWidth = 7;
-      ctx.stroke();
-
-      // Bold digital speed readout
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 54px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(speedKmh)}`, cx, cy + 8);
-
-      ctx.font = 'bold 14px sans-serif';
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText('KM / H', cx, cy + 28);
-
-      // Gear indicator
-      ctx.fillStyle = '#00e5ff';
-      ctx.font = 'bold 24px monospace';
-      ctx.fillText(`GEAR ${gear}`, cx, cy - 35);
-
-      // Trip stats
-      ctx.fillStyle = '#64748b';
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(`ODO: ${(distanceMeters / 1000).toFixed(1)} KM  |  MODE: PERF`, cx, cy + 62);
-
+      const a = Math.PI * 0.75 + THREE.MathUtils.clamp(speedKmh / max, 0, 1) * Math.PI * 1.5;
+      c.save(); c.translate(cx, cy); c.rotate(a); c.strokeStyle = '#c51f32'; c.lineWidth = 4;
+      c.beginPath(); c.moveTo(-9, 0); c.lineTo(78, 0); c.stroke(); c.restore();
+      c.fillStyle = '#1e293b'; c.fillRect(cx - 43, cy + 27, 86, 22);
+      c.fillStyle = '#e5edf5'; c.font = 'bold 12px monospace'; c.fillText(`G:${gear} ${(distanceMeters / 1000).toFixed(1)} km`, cx, cy + 42);
+      c.fillStyle = '#00d7ed'; c.font = 'bold 22px sans-serif'; c.fillText(`${Math.round(speedKmh)} KM/H`, cx, 248);
+    } else if (adventure) {
+      this.drawGauge(c, 145, 128, 82, speedKmh, 140, '#38bdf8', 'SPEED');
+      this.drawGauge(c, 365, 78, 51, rpmNorm * 8, 8, '#f59e0b', 'RPM x1000');
+      c.fillStyle = '#38bdf8'; c.font = 'bold 18px monospace'; c.fillText(`GEAR ${gear}`, 365, 181);
+      c.fillStyle = '#a8b8c9'; c.font = '12px monospace'; c.fillText(`${(distanceMeters / 1000).toFixed(1)} KM`, 365, 207);
+    } else if (tft) {
+      const cx = 256, cy = 128, r = 105;
+      c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fillStyle = '#101d2c'; c.fill();
+      c.lineWidth = 5; c.strokeStyle = bike.id === 'guerrilla-450' ? '#eabf36' : '#32bde9'; c.stroke();
+      c.beginPath(); c.arc(cx, cy, r - 9, Math.PI * 0.75, Math.PI * 0.75 + THREE.MathUtils.clamp(rpmNorm, 0, 1) * Math.PI * 1.5);
+      c.strokeStyle = rpmNorm > 0.88 ? '#ef4444' : '#36c9ed'; c.lineWidth = 7; c.stroke();
+      c.fillStyle = '#fff'; c.font = 'bold 56px sans-serif'; c.fillText(String(Math.round(speedKmh)), cx, cy + 10);
+      c.fillStyle = '#a8bbce'; c.font = 'bold 14px sans-serif'; c.fillText('KM / H', cx, cy + 32);
+      c.fillStyle = '#36c9ed'; c.font = 'bold 20px monospace'; c.fillText(`GEAR ${gear}`, cx, cy - 42);
+      c.fillStyle = '#9aaec2'; c.font = '12px monospace'; c.fillText(`TRIP ${(distanceMeters / 1000).toFixed(1)} KM`, cx, cy + 67);
     } else {
-      // HUNTER 350: OFFSET ASYMMETRIC ANALOG SPEEDO + TRIPPER POD
-      ctx.fillStyle = '#0b0f17';
-      ctx.fillRect(0, 0, w, h);
-
-      const cx1 = 180;
-      const cy1 = 128;
-      const r1 = 95;
-      ctx.beginPath();
-      ctx.arc(cx1, cy1, r1, 0, Math.PI * 2);
-      ctx.fillStyle = '#161922';
-      ctx.fill();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#38bdf8';
-      ctx.stroke();
-
-      const nAngle = Math.PI * 0.75 + (Math.min(1, speedKmh / 140)) * Math.PI * 1.5;
-      ctx.save();
-      ctx.translate(cx1, cy1);
-      ctx.rotate(nAngle);
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 3.5;
-      ctx.beginPath();
-      ctx.moveTo(-10, 0);
-      ctx.lineTo(r1 - 18, 0);
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 44px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(speedKmh)}`, cx1, cy1 + 25);
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('KM/H', cx1, cy1 + 45);
-
-      const cx2 = 370;
-      const cy2 = 128;
-      const r2 = 65;
-      ctx.beginPath();
-      ctx.arc(cx2, cy2, r2, 0, Math.PI * 2);
-      ctx.fillStyle = '#111827';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#10b981';
-      ctx.stroke();
-
-      ctx.fillStyle = '#10b981';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('TRIPPER', cx2, cy2 - 28);
-      ctx.font = 'bold 24px monospace';
-      ctx.fillStyle = '#f59e0b';
-      ctx.fillText(`G:${gear}`, cx2, cy2 + 2);
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText(`${(distanceMeters / 1000).toFixed(1)} KM`, cx2, cy2 + 30);
+      this.drawGauge(c, 175, 128, 91, speedKmh, 140, '#38bdf8', 'KM/H');
+      c.beginPath(); c.arc(380, 128, 65, 0, Math.PI * 2); c.fillStyle = '#101b29'; c.fill();
+      c.lineWidth = 3; c.strokeStyle = '#29c58b'; c.stroke();
+      c.fillStyle = '#29c58b'; c.font = 'bold 13px sans-serif'; c.fillText('TRIPPER', 380, 98);
+      c.fillStyle = '#f4c15d'; c.font = 'bold 25px monospace'; c.fillText(`G:${gear}`, 380, 137);
+      c.fillStyle = '#b2c0cf'; c.font = '12px monospace'; c.fillText(`${(distanceMeters / 1000).toFixed(1)} KM`, 380, 160);
     }
-
     this.dashTexture.needsUpdate = true;
   }
 
+  private drawGauge(c: CanvasRenderingContext2D, x: number, y: number, r: number, value: number, max: number, color: string, label: string) {
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = '#111b28'; c.fill();
+    c.lineWidth = 4; c.strokeStyle = '#647789'; c.stroke();
+    c.beginPath(); c.arc(x, y, r - 7, Math.PI * 0.75, Math.PI * 0.75 + THREE.MathUtils.clamp(value / max, 0, 1) * Math.PI * 1.5);
+    c.strokeStyle = color; c.lineWidth = 5; c.stroke();
+    c.fillStyle = '#b8c9d9'; c.font = 'bold 11px sans-serif'; c.fillText(label, x, y - 30);
+    c.fillStyle = '#f5f8fb'; c.font = 'bold 29px monospace'; c.fillText(String(Math.round(value)), x, y + 24);
+  }
+
   public updatePhysics(steerNorm: number, isBraking: boolean, throttleNorm: number, speedKmh: number, time: number) {
-    // Handlebars counter-steer slightly into the turn
-    const targetHandlebarYaw = -steerNorm * 0.12;
-    this.handlebarsGroup.rotation.y = THREE.MathUtils.lerp(this.handlebarsGroup.rotation.y, targetHandlebarYaw, 0.15);
-
-    // Natural engine & road vibration that scales with speed and RPM (single cylinder thump)
-    const vibration = (Math.sin(time * 48) * 0.0005 + (Math.random() - 0.5) * 0.0003) * Math.min(speedKmh / 90, 1.2);
+    const targetYaw = -steerNorm * 0.12;
+    this.handlebarsGroup.rotation.y = THREE.MathUtils.lerp(this.handlebarsGroup.rotation.y, targetYaw, 0.15);
+    const vibration = Math.sin(time * 48) * 0.00045 * Math.min(speedKmh / 90, 1.2);
     this.group.position.y = vibration;
+    if (this.rightLeverMesh) this.rightLeverMesh.rotation.y = THREE.MathUtils.lerp(this.rightLeverMesh.rotation.y, isBraking ? -0.3 : -0.16, 0.25);
+    if (this.rightGripMesh) this.rightGripMesh.rotation.x = throttleNorm * 0.35;
+  }
 
-    // Front brake lever pull animation
-    if (this.rightLeverMesh) {
-      const targetBrakeAngle = isBraking ? -0.3 : -0.16;
-      this.rightLeverMesh.rotation.y = THREE.MathUtils.lerp(this.rightLeverMesh.rotation.y, targetBrakeAngle, 0.25);
-    }
-
-    // Right throttle grip twist
-    if (this.rightGripMesh) {
-      this.rightGripMesh.rotation.x = throttleNorm * 0.35;
-    }
+  public dispose() {
+    this.group.traverse(o => {
+      if (o instanceof THREE.Mesh) {
+        o.geometry.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach(m => m.dispose());
+      }
+    });
+    this.dashTexture.dispose();
   }
 }
