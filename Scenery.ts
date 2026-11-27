@@ -16,25 +16,21 @@ export class SceneryManager {
   private guardrailMat!: THREE.MeshStandardMaterial;
   private terrainMat!: THREE.MeshStandardMaterial;
   private curbMat!: THREE.MeshStandardMaterial;
-  private centerBarrierMat!: THREE.MeshStandardMaterial;
   private treeTrunkGeo!: THREE.CylinderGeometry;
-  private treeCanopyGeo1!: THREE.ConeGeometry;
-  private treeCanopyGeo2!: THREE.ConeGeometry;
+  private treeCanopyGeo1!: THREE.IcosahedronGeometry;
+  private treeCanopyGeo2!: THREE.IcosahedronGeometry;
   private trunkMat!: THREE.MeshStandardMaterial;
-  private foliageMat1!: THREE.MeshStandardMaterial;
-  private foliageMat2!: THREE.MeshStandardMaterial;
+  private foliageMats: THREE.MeshStandardMaterial[] = [];
   private lampMat!: THREE.MeshStandardMaterial;
-  private buildingMat1!: THREE.MeshStandardMaterial;
-  private buildingMat2!: THREE.MeshStandardMaterial;
-  private reflectorMatAmber!: THREE.MeshBasicMaterial;
-  private reflectorMatRed!: THREE.MeshBasicMaterial;
-  private distantSkylineGroup: THREE.Group;
+  private buildingMats: THREE.MeshStandardMaterial[] = [];
+  private reflectorMatAmber = new THREE.MeshBasicMaterial({ color: 0xffb52e });
+  private reflectorMatRed = new THREE.MeshBasicMaterial({ color: 0xff4545 });
+  private distantSkylineGroup = new THREE.Group();
 
   constructor(scene: THREE.Scene, maxAnisotropy = 8) {
     this.scene = scene;
     this.roadTex = createAsphaltRoadTexture(maxAnisotropy);
     this.guardrailTex = createGuardrailTexture(maxAnisotropy);
-    this.distantSkylineGroup = new THREE.Group();
     this.initMaterials();
     this.buildInitialSegments();
     this.buildDistantSkyline();
@@ -47,27 +43,30 @@ export class SceneryManager {
     this.roadTex.repeat.set(1, 4);
     rough.repeat.set(1, 4);
     this.roadMat = new THREE.MeshStandardMaterial({
-      map: this.roadTex, roughnessMap: rough, roughness: 1,
+      map: this.roadTex, roughnessMap: rough, roughness: 0.96,
       metalness: 0, color: 0xffffff, side: THREE.DoubleSide,
     });
     this.guardrailMat = new THREE.MeshStandardMaterial({
-      map: this.guardrailTex, roughness: 0.42, metalness: 0.65,
+      map: this.guardrailTex, roughness: 0.38, metalness: 0.62,
       side: THREE.DoubleSide,
     });
-    this.terrainMat = new THREE.MeshStandardMaterial({ color: 0x294331, roughness: 1, metalness: 0 });
-    this.curbMat = new THREE.MeshStandardMaterial({ color: 0x555b61, roughness: 0.88 });
-    this.centerBarrierMat = new THREE.MeshStandardMaterial({ color: 0x929ba3, roughness: 0.78, metalness: 0.12 });
-    this.trunkMat = new THREE.MeshStandardMaterial({ color: 0x49301d, roughness: 0.95 });
-    this.foliageMat1 = new THREE.MeshStandardMaterial({ color: 0x1d4a30, roughness: 0.92 });
-    this.foliageMat2 = new THREE.MeshStandardMaterial({ color: 0x326644, roughness: 0.9 });
-    this.lampMat = new THREE.MeshStandardMaterial({ color: 0x9ca8b2, metalness: 0.72, roughness: 0.3 });
-    this.buildingMat1 = new THREE.MeshStandardMaterial({ color: 0x344657, roughness: 0.72, metalness: 0.12 });
-    this.buildingMat2 = new THREE.MeshStandardMaterial({ color: 0x59616a, roughness: 0.75, metalness: 0.1 });
-    this.reflectorMatAmber = new THREE.MeshBasicMaterial({ color: 0xffb12b });
-    this.reflectorMatRed = new THREE.MeshBasicMaterial({ color: 0xff4545 });
-    this.treeTrunkGeo = new THREE.CylinderGeometry(0.22, 0.34, 2.8, 9);
-    this.treeCanopyGeo1 = new THREE.ConeGeometry(1.9, 3.5, 9);
-    this.treeCanopyGeo2 = new THREE.ConeGeometry(1.35, 2.7, 9);
+    this.terrainMat = new THREE.MeshStandardMaterial({ color: 0x34513b, roughness: 1 });
+    this.curbMat = new THREE.MeshStandardMaterial({ color: 0x656c72, roughness: 0.88 });
+    this.trunkMat = new THREE.MeshStandardMaterial({ color: 0x49301f, roughness: 0.98 });
+    this.foliageMats = [
+      new THREE.MeshStandardMaterial({ color: 0x1c492e, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ color: 0x2d633c, roughness: 0.94 }),
+      new THREE.MeshStandardMaterial({ color: 0x3c7045, roughness: 0.96 }),
+    ];
+    this.lampMat = new THREE.MeshStandardMaterial({ color: 0x89949e, metalness: 0.7, roughness: 0.3 });
+    this.buildingMats = [
+      new THREE.MeshStandardMaterial({ color: 0x66717a, roughness: 0.78 }),
+      new THREE.MeshStandardMaterial({ color: 0x9a8c79, roughness: 0.82 }),
+      new THREE.MeshStandardMaterial({ color: 0x526575, roughness: 0.76 }),
+    ];
+    this.treeTrunkGeo = new THREE.CylinderGeometry(0.16, 0.28, 3.1, 8);
+    this.treeCanopyGeo1 = new THREE.IcosahedronGeometry(1.65, 1);
+    this.treeCanopyGeo2 = new THREE.IcosahedronGeometry(1.2, 1);
   }
 
   private buildInitialSegments() {
@@ -88,11 +87,11 @@ export class SceneryManager {
     const roadGeo = new THREE.PlaneGeometry(HIGHWAY_WIDTH, SEGMENT_LENGTH, 1, 1);
     roadGeo.rotateX(-Math.PI / 2);
     const road = new THREE.Mesh(roadGeo, this.roadMat);
-    road.position.set(0, 0.006, -SEGMENT_LENGTH / 2);
+    road.position.set(0, 0.012, -SEGMENT_LENGTH / 2);
     road.receiveShadow = true;
     group.add(road);
 
-    const curbGeo = new THREE.BoxGeometry(0.5, 0.16, SEGMENT_LENGTH + 0.12);
+    const curbGeo = new THREE.BoxGeometry(0.5, 0.16, SEGMENT_LENGTH + 0.15);
     for (const side of [-1, 1]) {
       const curb = new THREE.Mesh(curbGeo, this.curbMat);
       curb.position.set(side * (HIGHWAY_WIDTH / 2 + 0.25), 0.04, -SEGMENT_LENGTH / 2);
@@ -100,30 +99,25 @@ export class SceneryManager {
       group.add(curb);
     }
 
-    const groundGeo = new THREE.PlaneGeometry(160, SEGMENT_LENGTH);
+    const groundGeo = new THREE.PlaneGeometry(180, SEGMENT_LENGTH);
     groundGeo.rotateX(-Math.PI / 2);
     for (const side of [-1, 1]) {
       const ground = new THREE.Mesh(groundGeo, this.terrainMat);
-      ground.position.set(side * (HIGHWAY_WIDTH / 2 + 80), -0.07, -SEGMENT_LENGTH / 2);
+      ground.position.set(side * (HIGHWAY_WIDTH / 2 + 90), -0.09, -SEGMENT_LENGTH / 2);
       ground.receiveShadow = true;
       group.add(ground);
     }
 
-    const railGeo = new THREE.BoxGeometry(0.2, 0.75, SEGMENT_LENGTH + 0.1);
+    const railGeo = new THREE.BoxGeometry(0.2, 0.72, SEGMENT_LENGTH + 0.12);
+    const postGeo = new THREE.CylinderGeometry(0.05, 0.065, 0.82, 8);
+    const reflectorGeo = new THREE.BoxGeometry(0.06, 0.12, 0.15);
     for (const side of [-1, 1]) {
       const rail = new THREE.Mesh(railGeo, this.guardrailMat);
-      rail.position.set(side * GUARDRAIL_OFFSET, 0.44, -SEGMENT_LENGTH / 2);
-      rail.castShadow = true;
-      rail.receiveShadow = true;
-      group.add(rail);
-    }
-
-    const postGeo = new THREE.CylinderGeometry(0.055, 0.065, 0.85, 8);
-    const reflectorGeo = new THREE.BoxGeometry(0.06, 0.12, 0.16);
-    for (let pz = 4; pz < SEGMENT_LENGTH; pz += 8) {
-      for (const side of [-1, 1]) {
-        const post = new THREE.Mesh(postGeo, this.guardrailMat);
-        post.position.set(side * (GUARDRAIL_OFFSET + 0.09), 0.42, -pz);
+      rail.position.set(side * GUARDRAIL_OFFSET, 0.43, -SEGMENT_LENGTH / 2);
+      rail.castShadow = true; rail.receiveShadow = true; group.add(rail);
+      for (let pz = 4; pz < SEGMENT_LENGTH; pz += 8) {
+        const post = new THREE.Mesh(postGeo, this.lampMat);
+        post.position.set(side * (GUARDRAIL_OFFSET + 0.08), 0.42, -pz);
         group.add(post);
         const reflector = new THREE.Mesh(reflectorGeo, side < 0 ? this.reflectorMatAmber : this.reflectorMatRed);
         reflector.position.set(side * (GUARDRAIL_OFFSET - 0.12), 0.52, -pz);
@@ -131,73 +125,72 @@ export class SceneryManager {
       }
     }
 
-    this.addStreetlight(group, -GUARDRAIL_OFFSET - 1.4, -12, true);
-    this.addStreetlight(group, GUARDRAIL_OFFSET + 1.4, -52, false);
+    this.addStreetlight(group, -GUARDRAIL_OFFSET - 1.5, -15, true);
+    this.addStreetlight(group, GUARDRAIL_OFFSET + 1.5, -55, false);
 
-    // Tree spacing is intentionally moderate to protect mobile frame rate.
-    for (let tz = 6; tz < SEGMENT_LENGTH; tz += 13) {
-      this.addProceduralTree(group, -GUARDRAIL_OFFSET - 5 - Math.random() * 13, -tz);
-      this.addProceduralTree(group, GUARDRAIL_OFFSET + 5 + Math.random() * 13, -tz - 2);
+    // Repeated tree clusters use shared geometry and materials for mobile performance.
+    for (let tz = 5; tz < SEGMENT_LENGTH; tz += 14) {
+      this.addProceduralTree(group, -GUARDRAIL_OFFSET - 5 - Math.random() * 12, -tz);
+      this.addProceduralTree(group, GUARDRAIL_OFFSET + 5 + Math.random() * 12, -tz - 3);
     }
 
-    if (Math.random() > 0.55) {
-      const w = 18 + Math.random() * 14, h = 12 + Math.random() * 20, d = 28 + Math.random() * 22;
-      const building = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), Math.random() > 0.5 ? this.buildingMat1 : this.buildingMat2);
+    if (Math.random() > 0.45) {
+      const w = 16 + Math.random() * 16, h = 10 + Math.random() * 18, d = 22 + Math.random() * 20;
+      const building = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.buildingMats[Math.floor(Math.random() * this.buildingMats.length)]);
       building.position.set(Math.random() > 0.5 ? -48 : 48, h / 2, -SEGMENT_LENGTH * 0.5);
-      building.castShadow = true;
+      building.castShadow = true; building.receiveShadow = true;
       group.add(building);
+      // Simple roofline and window strips add depth without many draw calls.
+      const windows = new THREE.Mesh(new THREE.BoxGeometry(w * 0.72, 0.16, 0.035),
+        new THREE.MeshBasicMaterial({ color: 0xb7d2dc }));
+      windows.position.set(building.position.x, h * 0.62, building.position.z - d / 2 - 0.025);
+      group.add(windows);
     }
     if (hasGantry) this.addOverheadGantry(group, -SEGMENT_LENGTH * 0.5);
     return { group, z: zPos };
   }
 
   private addStreetlight(parent: THREE.Group, x: number, z: number, isLeft: boolean) {
-    const g = new THREE.Group();
-    g.position.set(x, 0, z);
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 8.2, 9), this.lampMat);
-    mast.position.y = 4.1; g.add(mast);
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.5, 8), this.lampMat);
-    arm.rotation.z = Math.PI / 2;
-    arm.position.set(isLeft ? 1.5 : -1.5, 8, 0); g.add(arm);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.2, 0.42), this.lampMat);
-    head.position.set(isLeft ? 3 : -3, 7.9, 0); g.add(head);
-    const led = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.3),
-      new THREE.MeshBasicMaterial({ color: 0xfff5d8 }));
-    led.rotation.x = -Math.PI / 2;
-    led.position.set(isLeft ? 3 : -3, 7.78, 0);
-    g.add(led); parent.add(g);
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.12, 8.1, 9), this.lampMat);
+    mast.position.y = 4.05; g.add(mast);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 3.1, 8), this.lampMat);
+    arm.rotation.z = Math.PI / 2; arm.position.set(isLeft ? 1.35 : -1.35, 7.85, 0); g.add(arm);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.18, 0.36), this.lampMat);
+    head.position.set(isLeft ? 2.7 : -2.7, 7.75, 0); g.add(head);
+    const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.25),
+      new THREE.MeshBasicMaterial({ color: 0xfff0ce }));
+    lens.rotation.x = -Math.PI / 2; lens.position.set(isLeft ? 2.7 : -2.7, 7.65, 0); g.add(lens);
+    parent.add(g);
   }
 
   private addProceduralTree(parent: THREE.Group, x: number, z: number) {
-    const tree = new THREE.Group();
-    tree.position.set(x, 0, z);
-    const s = 0.85 + Math.random() * 0.5;
-    tree.scale.setScalar(s);
+    const tree = new THREE.Group(); tree.position.set(x, 0, z);
+    const s = 0.8 + Math.random() * 0.55; tree.scale.setScalar(s);
     const trunk = new THREE.Mesh(this.treeTrunkGeo, this.trunkMat);
-    trunk.position.y = 1.4; trunk.castShadow = true; tree.add(trunk);
-    const lower = new THREE.Mesh(this.treeCanopyGeo1, this.foliageMat1);
-    lower.position.y = 3.2; lower.castShadow = true; tree.add(lower);
-    const upper = new THREE.Mesh(this.treeCanopyGeo2, this.foliageMat2);
-    upper.position.y = 4.7; upper.castShadow = true; tree.add(upper);
+    trunk.position.y = 1.55; trunk.castShadow = true; tree.add(trunk);
+    const lower = new THREE.Mesh(this.treeCanopyGeo1, this.foliageMats[Math.floor(Math.random() * this.foliageMats.length)]);
+    lower.position.y = 3.35; lower.scale.set(1, 1.15, 0.9); lower.castShadow = true; tree.add(lower);
+    const upper = new THREE.Mesh(this.treeCanopyGeo2, this.foliageMats[Math.floor(Math.random() * this.foliageMats.length)]);
+    upper.position.y = 4.65; upper.scale.set(0.95, 1.1, 0.9); upper.castShadow = true; tree.add(upper);
     parent.add(tree);
   }
 
   private addOverheadGantry(parent: THREE.Group, z: number) {
-    const g = new THREE.Group();
-    g.position.set(0, 0, z);
+    const g = new THREE.Group(); g.position.set(0, 0, z);
     const { HIGHWAY_WIDTH, GUARDRAIL_OFFSET } = GAME_CONSTANTS;
-    const postGeo = new THREE.CylinderGeometry(0.2, 0.27, 8.2, 9);
+    const postGeo = new THREE.CylinderGeometry(0.18, 0.25, 8.1, 10);
     for (const side of [-1, 1]) {
       const post = new THREE.Mesh(postGeo, this.lampMat);
-      post.position.set(side * (GUARDRAIL_OFFSET + 0.8), 4.1, 0);
+      post.position.set(side * (GUARDRAIL_OFFSET + 0.8), 4.05, 0);
       post.castShadow = true; g.add(post);
     }
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(HIGHWAY_WIDTH + 3.2, 0.85, 0.85), this.lampMat);
-    beam.position.y = 7.8; g.add(beam);
-    const signTexture = createHighwaySignTexture('NORTH METRO / AIRPORT', 'INTERSTATE HIGHWAY 95');
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 3.4),
-      new THREE.MeshStandardMaterial({ map: signTexture, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
-    sign.position.set(0, 7.8, 0.48); g.add(sign);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(HIGHWAY_WIDTH + 3.2, 0.72, 0.72), this.lampMat);
+    beam.position.y = 7.75; g.add(beam);
+    const signTex = createHighwaySignTexture('NORTH METRO / AIRPORT', 'INTERSTATE HIGHWAY 95');
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 3.1),
+      new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
+    sign.position.set(0, 7.75, 0.4); g.add(sign);
     parent.add(g);
   }
 
@@ -207,8 +200,7 @@ export class SceneryManager {
     const mat = new THREE.MeshBasicMaterial({ color: 0x52677a, fog: true });
     [-260, -130, 0, 130, 260].forEach((x, i) => {
       const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, 22, -80 - i * 25);
-      m.scale.set(1.5, 0.75, 1);
+      m.position.set(x, 22, -80 - i * 25); m.scale.set(1.5, 0.75, 1);
       this.distantSkylineGroup.add(m);
     });
     this.distantSkylineGroup.visible = false;
@@ -223,31 +215,34 @@ export class SceneryManager {
       s.group.visible = true;
     });
     this.distantSkylineGroup.position.z = playerZ - 650;
-    this.distantSkylineGroup.visible = false;
   }
 
   public update(playerZ: number) {
     const length = GAME_CONSTANTS.SEGMENT_LENGTH;
-    this.distantSkylineGroup.position.z = playerZ - 650;
-    this.distantSkylineGroup.visible = false;
-
-    let guard = 0, moved = true;
-    while (moved && guard < this.segments.length) {
-      moved = false; guard++;
-      let minZ = Infinity;
-      for (const s of this.segments) minZ = Math.min(minZ, s.z);
-      for (const s of this.segments) {
-        if (s.z > playerZ + 50) {
-          s.z = minZ - length;
-          s.group.position.z = s.z;
-          s.group.visible = true;
-          moved = true;
-          break;
-        }
+    let minZ = Math.min(...this.segments.map(s => s.z));
+    for (const s of this.segments) {
+      if (s.z > playerZ + 50) {
+        s.z = minZ - length;
+        s.group.position.z = s.z;
+        minZ = s.z;
       }
     }
-    const nearby = this.segments.some(s =>
-      s.z <= playerZ + length && s.z >= playerZ - length * 2);
-    if (!nearby) this.reset(playerZ);
+    this.distantSkylineGroup.position.z = playerZ - 650;
+  }
+
+  public dispose() {
+    this.segments.forEach(s => {
+      this.scene.remove(s.group);
+      s.group.traverse(o => {
+        if (o instanceof THREE.Mesh) {
+          o.geometry.dispose();
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach(m => m.dispose());
+        }
+      });
+    });
+    this.scene.remove(this.distantSkylineGroup);
+    this.roadTex.dispose(); this.guardrailTex.dispose();
+    this.roadMat.dispose(); this.guardrailMat.dispose(); this.terrainMat.dispose(); this.curbMat.dispose();
   }
 }
