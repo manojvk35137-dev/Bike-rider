@@ -14,6 +14,7 @@ import { GameEngine, InputState } from '../../GameEngine';
 import { MOTORCYCLE_REGISTRY, MotorcycleConfig } from '../../motorcycles';
 
 const SERVER_URL = 'https://bike-rider-multiplayer.onrender.com';
+const GARAGE_LAYOUT_KEY = 'bike_rider_garage_layout_v2';
 
 type MultiplayerMode = 'race' | 'free-ride';
 
@@ -49,6 +50,19 @@ type MusicTrack = {
 
 const MUSIC_DB_NAME = 'BikeRiderMusicDB';
 const MUSIC_STORE_NAME = 'tracks';
+
+function getSavedSongControlVisibility(): boolean {
+  try {
+    const saved = localStorage.getItem(GARAGE_LAYOUT_KEY);
+
+    if (!saved) return true;
+
+    const layout = JSON.parse(saved);
+    return layout?.songControl?.visible !== false;
+  } catch {
+    return true;
+  }
+}
 
 function openMusicDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -158,6 +172,12 @@ export default function App() {
   } | null>(null);
 
   const [showIntro, setShowIntro] = useState(true);
+
+  // Song Control visibility is restored from Garage Settings.
+  const [showSongControl, setShowSongControl] = useState(
+    getSavedSongControlVisibility
+  );
+
   const [selectedBike, setSelectedBike] =
     useState<MotorcycleConfig>(MOTORCYCLE_REGISTRY[0]);
   const [currentMode, setCurrentMode] = useState<GameMode>('one-way');
@@ -1275,7 +1295,8 @@ export default function App() {
         }}
       />
 
-      {!showIntro && (
+      {/* Song Control panel: hiding this does not stop audio playback. */}
+      {!showIntro && showSongControl && (
         <div
           ref={musicPanelRef}
           style={{
@@ -1396,6 +1417,7 @@ export default function App() {
               setShowMultiplayer((value) => !value)
             }
             isMultiplayerOpen={showMultiplayer}
+            onSongControlVisibilityChange={setShowSongControl}
           />
 
           {showMultiplayer && (
