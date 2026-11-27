@@ -21,11 +21,13 @@ interface StartScreenProps {
   onOpenFriends?: () => void;
   onOpenMultiplayer?: () => void;
   isMultiplayerOpen?: boolean;
+  onSongControlVisibilityChange?: (visible: boolean) => void;
 }
 
 type ItemId =
   | 'bikeList' | 'viewer' | 'details' | 'exhaust' | 'modes'
-  | 'ride' | 'mute' | 'friends' | 'multiplayer' | 'settings';
+  | 'ride' | 'mute' | 'friends' | 'multiplayer'
+  | 'songControl' | 'settings';
 
 type ItemLayout = {
   x: number;
@@ -46,6 +48,7 @@ const DEFAULT_LAYOUT: LayoutMap = {
   mute: { x: 0, y: 0, scale: 1, visible: true },
   friends: { x: 0, y: 0, scale: 1, visible: true },
   multiplayer: { x: 0, y: 0, scale: 1, visible: true },
+  songControl: { x: 0, y: 0, scale: 1, visible: true },
   settings: { x: 0, y: 0, scale: 1, visible: true },
 };
 
@@ -104,6 +107,7 @@ const LABELS: Record<ItemId, string> = {
   mute: 'Mute Button',
   friends: 'Friends Button',
   multiplayer: 'Multiplayer Button',
+  songControl: 'Song Control',
   settings: 'Settings Button',
 };
 
@@ -117,6 +121,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onOpenFriends,
   onOpenMultiplayer,
   isMultiplayerOpen = false,
+  onSongControlVisibilityChange,
 }) => {
   const [mode, setMode] = useState<GameMode>('one-way');
   const [isPlayingAudioPreview, setIsPlayingAudioPreview] = useState(false);
@@ -150,7 +155,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
     )
   );
 
-  // Save layout automatically.
   useEffect(() => {
     try {
       localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
@@ -159,7 +163,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
     }
   }, [layout]);
 
-  // Save general button size.
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -171,7 +174,11 @@ export const StartScreen: React.FC<StartScreenProps> = ({
     }
   }, [buttonSize]);
 
-  // Drag handling with touch and mouse support.
+  // Keep App.tsx music panel visibility synchronized with saved layout.
+  useEffect(() => {
+    onSongControlVisibilityChange?.(layout.songControl.visible);
+  }, [layout.songControl.visible, onSongControlVisibilityChange]);
+
   useEffect(() => {
     if (!editLayout) {
       dragRef.current = null;
@@ -222,7 +229,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       [id]: {
         ...old[id],
         ...patch,
-        // Settings must always remain accessible.
         ...(id === 'settings' ? { visible: true } : {}),
       },
     }));
@@ -310,6 +316,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const resetLayout = () => {
     dragRef.current = null;
     setLayout({ ...DEFAULT_LAYOUT });
+    onSongControlVisibilityChange?.(true);
   };
 
   const sizeClass =
@@ -696,35 +703,16 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               fill="none"
               aria-hidden="true"
             >
-              <path
-                d="M8 36L16 12H24L18 36H8Z"
-                fill="currentColor"
-              />
-              <path
-                d="M22 36L30 12H38L32 36H22Z"
-                fill="#d4af37"
-              />
-              <circle
-                cx="34"
-                cy="34"
-                r="7"
-                stroke="currentColor"
-                strokeWidth="3"
-              />
-              <circle
-                cx="14"
-                cy="34"
-                r="7"
-                stroke="#d4af37"
-                strokeWidth="3"
-              />
+              <path d="M8 36L16 12H24L18 36H8Z" fill="currentColor" />
+              <path d="M22 36L30 12H38L32 36H22Z" fill="#d4af37" />
+              <circle cx="34" cy="34" r="7" stroke="currentColor" strokeWidth="3" />
+              <circle cx="14" cy="34" r="7" stroke="#d4af37" strokeWidth="3" />
             </svg>
 
             <div className="min-w-0">
               <h1 className="garage-title whitespace-nowrap font-chakra text-2xl font-black italic uppercase tracking-tight text-white md:text-3xl">
                 Moto Rider <span className="text-cyan-400">Highway Rush</span>
               </h1>
-
               <p className="garage-subtitle font-mono-num text-[11px] text-zinc-400">
                 ROYAL ENFIELD EDITION · {MOTORCYCLE_REGISTRY.length} MOTORCYCLES
               </p>
@@ -733,9 +721,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
           <div className="flex shrink-0 items-center gap-2">
             <div className="hud-panel garage-score rounded-lg px-3 py-1.5 text-right font-mono-num">
-              <span className="block text-[10px] uppercase text-zinc-500">
-                High Score
-              </span>
+              <span className="block text-[10px] uppercase text-zinc-500">High Score</span>
               <span className="text-base font-bold text-cyan-400 md:text-lg">
                 {highScore.toLocaleString()}
               </span>
@@ -743,7 +729,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
             <div style={itemStyle('mute')}>
               {dragHandle('mute')}
-
               {layout.mute.visible && (
                 <button
                   onClick={onToggleMute}
@@ -762,7 +747,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
             <div style={itemStyle('settings')}>
               {dragHandle('settings')}
-
               <button
                 onClick={() => setShowSettings(true)}
                 className="garage-settings-button"
@@ -777,29 +761,17 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
         <main className="garage-main">
           {layout.bikeList.visible && (
-            <section
-              className="garage-left flex flex-col space-y-2"
-              style={itemStyle('bikeList')}
-            >
+            <section className="garage-left flex flex-col space-y-2" style={itemStyle('bikeList')}>
               {dragHandle('bikeList')}
-
               <div className="flex shrink-0 items-center justify-between px-1 font-mono-num text-xs text-zinc-400">
                 <span className="text-[10px]">
                   SELECT BIKE ({currentIndex + 1}/{MOTORCYCLE_REGISTRY.length})
                 </span>
-
                 <div className="flex gap-1">
-                  <button
-                    onClick={() => changeBike(-1)}
-                    className="rounded bg-zinc-800 p-1 text-white"
-                  >
+                  <button onClick={() => changeBike(-1)} className="rounded bg-zinc-800 p-1 text-white">
                     <ChevronLeft className="h-4 w-4" />
                   </button>
-
-                  <button
-                    onClick={() => changeBike(1)}
-                    className="rounded bg-zinc-800 p-1 text-white"
-                  >
+                  <button onClick={() => changeBike(1)} className="rounded bg-zinc-800 p-1 text-white">
                     <ChevronRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -808,7 +780,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <div className="garage-bike-list scrollbar-none">
                 {MOTORCYCLE_REGISTRY.map((bike) => {
                   const active = bike.id === selectedBike.id;
-
                   return (
                     <button
                       key={bike.id}
@@ -823,12 +794,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                         <span className="garage-bike-card-name truncate font-chakra text-sm font-bold tracking-wide text-white">
                           {bike.name}
                         </span>
-
                         <span className="whitespace-nowrap rounded bg-zinc-800 px-1.5 py-0.5 font-mono-num text-[10px] text-zinc-300">
                           {bike.displacementCc}cc
                         </span>
                       </div>
-
                       <span className="garage-bike-card-series mt-0.5 block truncate text-[10px] text-zinc-400">
                         {bike.series}
                       </span>
@@ -840,41 +809,23 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           )}
 
           {layout.viewer.visible && (
-            <section
-              className="garage-viewer hud-panel flex items-center justify-center rounded-2xl"
-              style={itemStyle('viewer')}
-            >
+            <section className="garage-viewer hud-panel flex items-center justify-center rounded-2xl" style={itemStyle('viewer')}>
               {dragHandle('viewer')}
-
               <MotorcycleViewer3D bike={selectedBike} />
-
               <div className="absolute left-3 top-3 rounded border border-zinc-700 bg-black/70 px-2.5 py-1 font-mono-num text-[11px] font-bold text-cyan-300">
                 {selectedBike.badge}
               </div>
 
-              {/* Test Exhaust intentionally stays inside the 3D Viewer. */}
               {layout.exhaust.visible && (
-                <div
-                  className="absolute bottom-3 right-3"
-                  style={itemStyle('exhaust')}
-                >
+                <div className="absolute bottom-3 right-3" style={itemStyle('exhaust')}>
                   {dragHandle('exhaust')}
-
                   <button
                     onClick={handleSoundPreview}
                     disabled={isPlayingAudioPreview}
                     className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 font-mono-num text-xs text-zinc-200 transition hover:border-cyan-400 disabled:opacity-60"
                   >
-                    <Volume2
-                      className={`h-3.5 w-3.5 ${
-                        isPlayingAudioPreview
-                          ? 'animate-pulse text-amber-400'
-                          : 'text-cyan-400'
-                      }`}
-                    />
-                    {isPlayingAudioPreview
-                      ? 'REV SOUND...'
-                      : 'TEST EXHAUST'}
+                    <Volume2 className={`h-3.5 w-3.5 ${isPlayingAudioPreview ? 'animate-pulse text-amber-400' : 'text-cyan-400'}`} />
+                    {isPlayingAudioPreview ? 'REV SOUND...' : 'TEST EXHAUST'}
                   </button>
                 </div>
               )}
@@ -882,23 +833,15 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           )}
 
           {layout.details.visible && (
-            <section
-              className="garage-details hud-panel flex flex-col justify-between space-y-3 rounded-2xl p-4"
-              style={itemStyle('details')}
-            >
+            <section className="garage-details hud-panel flex flex-col justify-between space-y-3 rounded-2xl p-4" style={itemStyle('details')}>
               {dragHandle('details')}
-
               <div>
                 <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
-                  <h2 className="truncate font-chakra text-lg font-bold text-white">
-                    {selectedBike.name}
-                  </h2>
-
+                  <h2 className="truncate font-chakra text-lg font-bold text-white">{selectedBike.name}</h2>
                   <span className="whitespace-nowrap font-mono-num text-xs font-bold text-cyan-400">
                     {selectedBike.engineType.split(' ')[0]}
                   </span>
                 </div>
-
                 <p className="garage-description mt-2 text-[11px] leading-relaxed text-zinc-400">
                   {selectedBike.description}
                 </p>
@@ -906,34 +849,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
               <div className="garage-stats space-y-2 font-mono-num text-xs">
                 {([
-                  [
-                    'TOP SPEED',
-                    `${selectedBike.topSpeedKmh} KM/H`,
-                    Math.min(100, selectedBike.topSpeedKmh / 160 * 100),
-                    Gauge,
-                    'bg-cyan-400',
-                  ],
-                  [
-                    'ACCELERATION',
-                    `${selectedBike.powerBhp} BHP (${selectedBike.accelerationScore}/10)`,
-                    Math.min(100, selectedBike.accelerationScore * 10),
-                    Zap,
-                    'bg-amber-400',
-                  ],
-                  [
-                    'HANDLING',
-                    `${selectedBike.handlingScore}/10`,
-                    Math.min(100, selectedBike.handlingScore * 10),
-                    Sparkles,
-                    'bg-emerald-400',
-                  ],
-                  [
-                    'BRAKES',
-                    `${selectedBike.brakingScore}/10`,
-                    Math.min(100, selectedBike.brakingScore * 10),
-                    Shield,
-                    'bg-rose-400',
-                  ],
+                  ['TOP SPEED', `${selectedBike.topSpeedKmh} KM/H`, Math.min(100, selectedBike.topSpeedKmh / 160 * 100), Gauge, 'bg-cyan-400'],
+                  ['ACCELERATION', `${selectedBike.powerBhp} BHP (${selectedBike.accelerationScore}/10)`, Math.min(100, selectedBike.accelerationScore * 10), Zap, 'bg-amber-400'],
+                  ['HANDLING', `${selectedBike.handlingScore}/10`, Math.min(100, selectedBike.handlingScore * 10), Sparkles, 'bg-emerald-400'],
+                  ['BRAKES', `${selectedBike.brakingScore}/10`, Math.min(100, selectedBike.brakingScore * 10), Shield, 'bg-rose-400'],
                 ] as const).map(([label, value, width, Icon, bar]) => (
                   <div key={label}>
                     <div className="mb-0.5 flex justify-between gap-2 text-[11px] text-zinc-400">
@@ -941,17 +860,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                         <Icon className="h-3.5 w-3.5" />
                         {label}
                       </span>
-
-                      <span className="font-bold text-white">
-                        {value}
-                      </span>
+                      <span className="font-bold text-white">{value}</span>
                     </div>
-
                     <div className="garage-stat-bar h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
-                      <div
-                        className={`h-full rounded-full ${bar}`}
-                        style={{ width: `${width}%` }}
-                      />
+                      <div className={`h-full rounded-full ${bar}`} style={{ width: `${width}%` }} />
                     </div>
                   </div>
                 ))}
@@ -959,9 +871,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
               <div className="garage-cooling flex justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-2 font-mono-num text-[11px] text-zinc-300">
                 <span className="truncate">{selectedBike.cooling}</span>
-                <span className="whitespace-nowrap text-amber-400">
-                  {selectedBike.torqueNm} Nm Torque
-                </span>
+                <span className="whitespace-nowrap text-amber-400">{selectedBike.torqueNm} Nm Torque</span>
               </div>
             </section>
           )}
@@ -969,54 +879,38 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
         <footer className="garage-footer">
           {layout.modes.visible && (
-            <div
-              className="garage-mode-buttons relative rounded-xl border border-zinc-800 bg-zinc-900/90 p-1"
-              style={itemStyle('modes')}
-            >
+            <div className="garage-mode-buttons relative rounded-xl border border-zinc-800 bg-zinc-900/90 p-1" style={itemStyle('modes')}>
               {dragHandle('modes')}
-
-              {(['one-way', 'two-way', 'time-rush'] as GameMode[]).map(
-                (value) => (
-                  <button
-                    key={value}
-                    onClick={() => setMode(value)}
-                    className={`garage-mode-button rounded-lg px-3 py-1.5 font-chakra text-xs font-bold tracking-wider transition ${
-                      mode === value
-                        ? value === 'one-way'
-                          ? 'bg-cyan-500 text-black shadow-md'
-                          : value === 'two-way'
-                            ? 'bg-amber-500 text-black shadow-md'
-                            : 'bg-rose-500 text-white shadow-md'
-                        : 'text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    {value === 'one-way'
-                      ? 'ONE-WAY'
-                      : value === 'two-way'
-                        ? 'TWO-WAY (DANGER)'
-                        : 'TIME RUSH'}
-                  </button>
-                )
-              )}
+              {(['one-way', 'two-way', 'time-rush'] as GameMode[]).map((value) => (
+                <button
+                  key={value}
+                  onClick={() => setMode(value)}
+                  className={`garage-mode-button rounded-lg px-3 py-1.5 font-chakra text-xs font-bold tracking-wider transition ${
+                    mode === value
+                      ? value === 'one-way'
+                        ? 'bg-cyan-500 text-black shadow-md'
+                        : value === 'two-way'
+                          ? 'bg-amber-500 text-black shadow-md'
+                          : 'bg-rose-500 text-white shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {value === 'one-way' ? 'ONE-WAY' : value === 'two-way' ? 'TWO-WAY (DANGER)' : 'TIME RUSH'}
+                </button>
+              ))}
             </div>
           )}
 
           <div className="garage-info flex max-w-md items-center gap-1.5 text-center font-mono-num text-[10px] text-zinc-500">
             <Info className="h-4 w-4 shrink-0 text-zinc-400" />
-
             <span>
-              {selectedBike.modelLegalNote} Acoustic simulation synthesized
-              procedurally with Web Audio API.
+              {selectedBike.modelLegalNote} Acoustic simulation synthesized procedurally with Web Audio API.
             </span>
           </div>
 
           {layout.ride.visible && (
-            <div
-              className="relative w-full"
-              style={itemStyle('ride')}
-            >
+            <div className="relative w-full" style={itemStyle('ride')}>
               {dragHandle('ride')}
-
               <button
                 onClick={startGame}
                 className="garage-ride-button flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-8 py-3 font-chakra text-lg font-black tracking-widest text-black shadow-[0_0_24px_rgba(0,229,255,0.5)] transition active:scale-95 md:text-xl"
@@ -1031,12 +925,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         {(onOpenFriends || onOpenMultiplayer) && (
           <div className="fixed bottom-3 right-3 z-40 flex flex-col gap-2">
             {onOpenFriends && layout.friends.visible && (
-              <div
-                className="relative"
-                style={itemStyle('friends')}
-              >
+              <div className="relative" style={itemStyle('friends')}>
                 {dragHandle('friends')}
-
                 <button
                   onClick={onOpenFriends}
                   className="rounded-xl border border-emerald-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
@@ -1047,19 +937,13 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             )}
 
             {onOpenMultiplayer && layout.multiplayer.visible && (
-              <div
-                className="relative"
-                style={itemStyle('multiplayer')}
-              >
+              <div className="relative" style={itemStyle('multiplayer')}>
                 {dragHandle('multiplayer')}
-
                 <button
                   onClick={onOpenMultiplayer}
                   className="rounded-xl border border-cyan-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
                 >
-                  {isMultiplayerOpen
-                    ? 'Close Multiplayer'
-                    : '🌐 Multiplayer'}
+                  {isMultiplayerOpen ? 'Close Multiplayer' : '🌐 Multiplayer'}
                 </button>
               </div>
             )}
@@ -1069,32 +953,23 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
       {editLayout && (
         <div className="garage-edit-banner">
-          LAYOUT EDIT MODE · Drag the{' '}
-          <Move className="inline h-3 w-3" /> handles · Changes auto-save
+          LAYOUT EDIT MODE · Drag the <Move className="inline h-3 w-3" /> handles · Changes auto-save
         </div>
       )}
 
       {showSettings && (
-        <div
-          className="garage-panel"
-          onClick={() => setShowSettings(false)}
-        >
-          <div
-            className="garage-panel-inner"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div className="garage-panel" onClick={() => setShowSettings(false)}>
+          <div className="garage-panel-inner" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="flex items-center gap-2 text-xl font-black text-cyan-300">
                   <Settings className="h-5 w-5" />
                   GARAGE SETTINGS
                 </h2>
-
                 <p className="mt-1 text-[10px] tracking-wider text-zinc-500">
                   CUSTOMIZE YOUR GARAGE SCREEN
                 </p>
               </div>
-
               <button
                 onClick={() => setShowSettings(false)}
                 className="rounded-lg bg-zinc-800 p-2 text-zinc-300"
@@ -1113,9 +988,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 <button
                   key={size}
                   onClick={() => setButtonSize(size)}
-                  className={`garage-choice ${
-                    buttonSize === size ? 'selected' : ''
-                  }`}
+                  className={`garage-choice ${buttonSize === size ? 'selected' : ''}`}
                 >
                   {size.toUpperCase()}
                 </button>
@@ -1126,9 +999,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <button
                 onClick={() => setEditLayout((value) => !value)}
                 className={`flex-1 rounded-xl p-3 text-xs font-black ${
-                  editLayout
-                    ? 'bg-amber-500 text-black'
-                    : 'bg-cyan-700 text-white'
+                  editLayout ? 'bg-amber-500 text-black' : 'bg-cyan-700 text-white'
                 }`}
               >
                 <Move className="mr-1 inline h-4 w-4" />
@@ -1147,10 +1018,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             <p className="mb-1 text-xs font-bold uppercase tracking-wider text-zinc-400">
               Show / Hide and Individual Size
             </p>
-
             <p className="mb-2 text-[10px] text-zinc-500">
-              Use move mode, then drag each item's handle on the screen.
-              Each item's size is saved separately.
+              Use move mode, then drag each item's handle on the screen. Each item's size is saved separately.
             </p>
 
             {(Object.keys(LABELS) as ItemId[]).map((id) => (
@@ -1159,36 +1028,23 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   <div className="truncate text-sm font-semibold text-zinc-200">
                     {LABELS[id]}
                   </div>
-
                   <div className="mt-1 flex items-center gap-2">
                     <button
-                      onClick={() =>
-                        updateItem(id, {
-                          scale: Math.max(
-                            0.65,
-                            +(layout[id].scale - 0.05).toFixed(2)
-                          ),
-                        })
-                      }
+                      onClick={() => updateItem(id, {
+                        scale: Math.max(0.65, +(layout[id].scale - 0.05).toFixed(2)),
+                      })}
                       className="rounded bg-zinc-800 p-1.5 text-zinc-200"
                       aria-label={`Make ${LABELS[id]} smaller`}
                     >
                       <Minus className="h-3 w-3" />
                     </button>
-
                     <span className="w-10 text-center font-mono-num text-[10px] text-cyan-300">
                       {Math.round(layout[id].scale * 100)}%
                     </span>
-
                     <button
-                      onClick={() =>
-                        updateItem(id, {
-                          scale: Math.min(
-                            1.5,
-                            +(layout[id].scale + 0.05).toFixed(2)
-                          ),
-                        })
-                      }
+                      onClick={() => updateItem(id, {
+                        scale: Math.min(1.5, +(layout[id].scale + 0.05).toFixed(2)),
+                      })}
                       className="rounded bg-zinc-800 p-1.5 text-zinc-200"
                       aria-label={`Make ${LABELS[id]} larger`}
                     >
@@ -1199,19 +1055,9 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
                 <button
                   disabled={id === 'settings'}
-                  onClick={() =>
-                    updateItem(id, {
-                      visible: !layout[id].visible,
-                    })
-                  }
-                  className={`garage-toggle ${
-                    layout[id].visible ? 'on' : 'off'
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                  title={
-                    id === 'settings'
-                      ? 'Settings cannot be hidden'
-                      : 'Show or hide this item'
-                  }
+                  onClick={() => updateItem(id, { visible: !layout[id].visible })}
+                  className={`garage-toggle ${layout[id].visible ? 'on' : 'off'} disabled:cursor-not-allowed disabled:opacity-50`}
+                  title={id === 'settings' ? 'Settings cannot be hidden' : 'Show or hide this item'}
                 >
                   <span className="flex items-center justify-center gap-1">
                     {layout[id].visible ? (
@@ -1238,7 +1084,6 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 <RotateCcw className="h-4 w-4" />
                 RESET LAYOUT
               </button>
-
               <button
                 onClick={() => {
                   setEditLayout(false);
