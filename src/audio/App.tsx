@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { sounds } from './SoundEffects';
@@ -1390,31 +1391,12 @@ export default function App() {
             onToggleMute={handleToggleMute}
             selectedBike={selectedBike}
             onSelectBike={handleSelectBike}
+            onOpenFriends={() => setShowFriends((value) => !value)}
+            onOpenMultiplayer={() =>
+              setShowMultiplayer((value) => !value)
+            }
+            isMultiplayerOpen={showMultiplayer}
           />
-
-          {/* Friends and Multiplayer buttons: moved slightly up,
-              positioned beside the viewer, away from bike details. */}
-          <div
-            className="fixed z-40 flex flex-col gap-2"
-            style={{
-              right: 'calc(24% + 16px)',
-              bottom: '40px',
-            }}
-          >
-            <button
-              onClick={() => setShowFriends((value) => !value)}
-              className="rounded-xl border border-emerald-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
-            >
-              👥 Friends
-            </button>
-
-            <button
-              onClick={() => setShowMultiplayer((value) => !value)}
-              className="rounded-xl border border-cyan-300/50 bg-slate-950/95 px-4 py-3 font-bold text-white shadow-lg"
-            >
-              {showMultiplayer ? 'Close Multiplayer' : '🌐 Multiplayer'}
-            </button>
-          </div>
 
           {showMultiplayer && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
