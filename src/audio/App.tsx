@@ -147,6 +147,11 @@ export default function App() {
   const currentMusicIndexRef = useRef(0);
   const musicFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Audio gain and draggable panel refs
+  const musicAudioContextRef = useRef<AudioContext | null>(null);
+  const musicPanelRef = useRef<HTMLDivElement>(null);
+  const musicDragRef = useRef<{ x: number; y: number } | null>(null);
+
   const [showIntro, setShowIntro] = useState(true);
   const [selectedBike, setSelectedBike] =
     useState<MotorcycleConfig>(MOTORCYCLE_REGISTRY[0]);
@@ -164,6 +169,52 @@ export default function App() {
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.75);
   const [musicMessage, setMusicMessage] = useState('');
+
+  // Saved draggable music panel position
+  const [musicPosition, setMusicPosition] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bike_music_position');
+      if (saved) {
+        const position = JSON.parse(saved);
+        if (
+          Number.isFinite(position?.x) &&
+          Number.isFinite(position?.y)
+        ) {
+          return { x: position.x, y: position.y };
+        }
+      }
+    } catch {
+      // Use default position.
+    }
+
+    return {
+      x: 8,
+      y: Math.max(8, window.innerHeight - 115),
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'bike_music_position',
+        JSON.stringify(musicPosition)
+      );
+    } catch {
+      // Position storage may be unavailable.
+    }
+  }, [musicPosition]);
+
+  const resumeMusicAudio = useCallback(async () => {
+    const context = musicAudioContextRef.current;
+
+    if (context?.state === 'suspended') {
+      try {
+        await context.resume();
+      } catch (error) {
+        console.error('Could not resume music audio:', error);
+      }
+    }
+  }, []);
 
   const [showMultiplayer, setShowMultiplayer] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
@@ -226,12 +277,28 @@ export default function App() {
     currentMusicIndexRef.current = currentMusicIndex;
   }, [currentMusicIndex]);
 
-  // Create audio player and restore saved music.
+  // Create audio player, add audio gain and restore saved music.
   useEffect(() => {
     const audio = new Audio();
     audio.preload = 'auto';
     audio.volume = musicVolume;
     musicAudioRef.current = audio;
+
+    try {
+      const context = new AudioContext();
+      const source = context.createMediaElementSource(audio);
+      const gain = context.createGain();
+
+      // Increase music output gain.
+      gain.gain.value = 1.8;
+
+      source.connect(gain);
+      gain.connect(context.destination);
+
+      musicAudioContextRef.current = context;
+    } catch (error) {
+      console.error('Audio gain setup failed:', error);
+    }
 
     const handleEnded = () => {
       const urls = musicUrlsRef.current;
@@ -297,6 +364,11 @@ export default function App() {
       musicUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
       musicUrlsRef.current = [];
       musicAudioRef.current = null;
+
+      if (musicAudioContextRef.current) {
+        void musicAudioContextRef.current.close();
+        musicAudioContextRef.current = null;
+      }
     };
   }, []);
 
@@ -305,6 +377,28 @@ export default function App() {
       musicAudioRef.current.volume = musicVolume;
     }
   }, [musicVolume]);
+
+  // Keep the music panel inside the visible screen after resizing.
+  useEffect(() => {
+    const handleResize = () => {
+      const panel = musicPanelRef.current;
+      if (!panel) return;
+
+      setMusicPosition((previous) => ({
+        x: Math.max(
+          0,
+          Math.min(window.innerWidth - panel.offsetWidth, previous.x)
+        ),
+        y: Math.max(
+          0,
+          Math.min(window.innerHeight - panel.offsetHeight, previous.y)
+        ),
+      }));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleMusicUpload = useCallback(async (file: File) => {
     if (
@@ -345,6 +439,7 @@ export default function App() {
     audio.volume = musicVolume;
 
     try {
+      await resumeMusicAudio();
       await audio.play();
       setIsMusicPlaying(true);
       setMusicMessage(`Now playing: ${file.name}`);
@@ -360,7 +455,7 @@ export default function App() {
       console.error('Could not save music:', error);
       setMusicMessage('Music can play, but could not be saved for next time.');
     }
-  }, [musicVolume]);
+  }, [musicVolume, resumeMusicAudio]);
 
   const handleMusicPlayPause = useCallback(async () => {
     const audio = musicAudioRef.current;
@@ -380,6 +475,7 @@ export default function App() {
       }
 
       try {
+        await resumeMusicAudio();
         await audio.play();
         setIsMusicPlaying(true);
         setMusicMessage('Music playing.');
@@ -393,7 +489,7 @@ export default function App() {
       setIsMusicPlaying(false);
       setMusicMessage('Music paused.');
     }
-  }, []);
+  }, [resumeMusicAudio]);
 
   const handleMusicNext = useCallback(async () => {
     const urls = musicUrlsRef.current;
@@ -410,6 +506,7 @@ export default function App() {
     audio.src = urls[nextIndex];
 
     try {
+      await resumeMusicAudio();
       await audio.play();
       setIsMusicPlaying(true);
       setMusicMessage(
@@ -419,7 +516,7 @@ export default function App() {
       setIsMusicPlaying(false);
       setMusicMessage('Tap Play to start this track.');
     }
-  }, []);
+  }, [resumeMusicAudio]);
 
   const handleMusicPrevious = useCallback(async () => {
     const urls = musicUrlsRef.current;
@@ -436,6 +533,7 @@ export default function App() {
     audio.src = urls[previousIndex];
 
     try {
+      await resumeMusicAudio();
       await audio.play();
       setIsMusicPlaying(true);
       setMusicMessage(
@@ -445,7 +543,7 @@ export default function App() {
       setIsMusicPlaying(false);
       setMusicMessage('Tap Play to start this track.');
     }
-  }, []);
+  }, [resumeMusicAudio]);
 
   const handleMusicDelete = useCallback(async () => {
     const index = currentMusicIndexRef.current;
@@ -497,14 +595,16 @@ export default function App() {
 
     const audio = musicAudioRef.current;
     if (audio && audio.src) {
-      audio.play().then(() => {
-        setIsMusicPlaying(true);
-      }).catch(() => {
-        setIsMusicPlaying(false);
-        setMusicMessage('Tap Play to start music.');
+      void resumeMusicAudio().then(() => {
+        audio.play().then(() => {
+          setIsMusicPlaying(true);
+        }).catch(() => {
+          setIsMusicPlaying(false);
+          setMusicMessage('Tap Play to start music.');
+        });
       });
     }
-  }, []);
+  }, [resumeMusicAudio]);
 
   // Create the game engine once.
   useEffect(() => {
@@ -1116,11 +1216,60 @@ export default function App() {
         }}
       />
 
-      {/* Compact Royal Enfield Music Player */}
+      {/* Draggable Royal Enfield Music Player */}
       {!showIntro && (
-        <div className="fixed bottom-2 left-2 z-[80] w-[210px] max-w-[calc(100vw-16px)] rounded-xl border border-amber-500/40 bg-[#080808]/95 p-2 text-white shadow-lg backdrop-blur-md">
+        <div
+          ref={musicPanelRef}
+          style={{
+            left: musicPosition.x,
+            top: musicPosition.y,
+          }}
+          className="fixed z-[80] w-[210px] max-w-[calc(100vw-16px)] rounded-xl border border-amber-500/40 bg-[#080808]/95 p-2 text-white shadow-lg backdrop-blur-md"
+        >
+          <div
+            className="mb-1 flex min-w-0 cursor-move touch-none select-none items-center gap-1.5"
+            onPointerDown={(event) => {
+              const rect = musicPanelRef.current?.getBoundingClientRect();
+              if (!rect) return;
 
-          <div className="mb-1 flex min-w-0 items-center gap-1.5">
+              musicDragRef.current = {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top,
+              };
+
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              if (!musicDragRef.current || !musicPanelRef.current) return;
+
+              const panel = musicPanelRef.current;
+              const width = panel.offsetWidth;
+              const height = panel.offsetHeight;
+
+              setMusicPosition({
+                x: Math.max(
+                  0,
+                  Math.min(
+                    window.innerWidth - width,
+                    event.clientX - musicDragRef.current.x
+                  )
+                ),
+                y: Math.max(
+                  0,
+                  Math.min(
+                    window.innerHeight - height,
+                    event.clientY - musicDragRef.current.y
+                  )
+                ),
+              });
+            }}
+            onPointerUp={() => {
+              musicDragRef.current = null;
+            }}
+            onPointerCancel={() => {
+              musicDragRef.current = null;
+            }}
+          >
             <span className="text-sm text-amber-400">♫</span>
             <p className="min-w-0 flex-1 truncate text-[10px] font-bold tracking-wide text-amber-200">
               {currentTrackName}
