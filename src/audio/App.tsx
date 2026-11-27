@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { sounds } from './SoundEffects';
@@ -40,6 +41,97 @@ type ServerAck = {
   accepted?: boolean;
 };
 
+type MusicTrack = {
+  id: string;
+  name: string;
+  blob: Blob;
+};
+
+const MUSIC_DB_NAME = 'BikeRiderMusicDB';
+const MUSIC_STORE_NAME = 'tracks';
+
+function openMusicDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) {
+      reject(new Error('Music storage is not supported.'));
+      return;
+    }
+
+    const request = indexedDB.open(MUSIC_DB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(MUSIC_STORE_NAME)) {
+        db.createObjectStore(MUSIC_STORE_NAME, { keyPath: 'id' });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveMusicTrack(track: MusicTrack): Promise<void> {
+  const db = await openMusicDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MUSIC_STORE_NAME, 'readwrite');
+    transaction.objectStore(MUSIC_STORE_NAME).put(track);
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+async function getSavedMusic(): Promise<MusicTrack[]> {
+  const db = await openMusicDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MUSIC_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(MUSIC_STORE_NAME).getAll();
+
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result as MusicTrack[]);
+    };
+
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+}
+
+async function deleteSavedMusic(id: string): Promise<void> {
+  const db = await openMusicDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(MUSIC_STORE_NAME, 'readwrite');
+    transaction.objectStore(MUSIC_STORE_NAME).delete(id);
+
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+function makeMusicId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -47,7 +139,13 @@ export default function App() {
   const activeRoomRef = useRef('');
   const multiplayerModeRef = useRef<MultiplayerMode>('race');
   const pendingUsernameRef = useRef('');
-  const connectedOnceRef = useRef(false);
+
+  // Music player refs
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const musicUrlsRef = useRef<string[]>([]);
+  const musicTracksRef = useRef<MusicTrack[]>([]);
+  const currentMusicIndexRef = useRef(0);
+  const musicFileInputRef = useRef<HTMLInputElement>(null);
 
   const [showIntro, setShowIntro] = useState(true);
   const [selectedBike, setSelectedBike] =
@@ -59,6 +157,13 @@ export default function App() {
   const [isGameOver, setIsGameOver] = useState(false);
   const [isNewHigh, setIsNewHigh] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+
+  // Music state
+  const [musicTracks, setMusicTracks] = useState<MusicTrack[]>([]);
+  const [currentMusicIndex, setCurrentMusicIndex] = useState(0);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(0.75);
+  const [musicMessage, setMusicMessage] = useState('');
 
   const [showMultiplayer, setShowMultiplayer] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
@@ -112,6 +217,285 @@ export default function App() {
     horn: false,
     boost: false,
   });
+
+  // Keep music refs in sync with React state.
+  useEffect(() => {
+    musicTracksRef.current = musicTracks;
+  }, [musicTracks]);
+
+  useEffect(() => {
+    currentMusicIndexRef.current = currentMusicIndex;
+  }, [currentMusicIndex]);
+
+  // Create audio player and restore saved music.
+  useEffect(() => {
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.volume = musicVolume;
+    musicAudioRef.current = audio;
+
+    const handleEnded = () => {
+      const urls = musicUrlsRef.current;
+
+      if (urls.length > 1) {
+        const nextIndex =
+          (currentMusicIndexRef.current + 1) % urls.length;
+
+        currentMusicIndexRef.current = nextIndex;
+        setCurrentMusicIndex(nextIndex);
+        audio.src = urls[nextIndex];
+        audio.play().then(() => {
+          setIsMusicPlaying(true);
+        }).catch(() => {
+          setIsMusicPlaying(false);
+          setMusicMessage('Tap Play to continue music.');
+        });
+      } else if (urls.length === 1) {
+        audio.currentTime = 0;
+        audio.play().catch(() => setIsMusicPlaying(false));
+      }
+    };
+
+    audio.addEventListener('ended', handleEnded);
+
+    let cancelled = false;
+
+    const restoreMusic = async () => {
+      try {
+        const savedTracks = await getSavedMusic();
+        if (cancelled) return;
+
+        if (savedTracks.length > 0 && musicTracksRef.current.length === 0) {
+          const urls = savedTracks.map((track) =>
+            URL.createObjectURL(track.blob)
+          );
+
+          musicTracksRef.current = savedTracks;
+          musicUrlsRef.current = urls;
+
+          setMusicTracks(savedTracks);
+          setCurrentMusicIndex(0);
+          currentMusicIndexRef.current = 0;
+
+          audio.src = urls[0];
+          audio.load();
+
+          setMusicMessage('Saved music restored. Tap Play to listen.');
+        }
+      } catch (error) {
+        console.error('Could not restore music:', error);
+        setMusicMessage('Could not load saved music.');
+      }
+    };
+
+    void restoreMusic();
+
+    return () => {
+      cancelled = true;
+      audio.pause();
+      audio.removeEventListener('ended', handleEnded);
+      musicUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      musicUrlsRef.current = [];
+      musicAudioRef.current = null;
+    };
+  }, []);
+
+  // Apply volume changes.
+  useEffect(() => {
+    if (musicAudioRef.current) {
+      musicAudioRef.current.volume = musicVolume;
+    }
+  }, [musicVolume]);
+
+  const handleMusicUpload = useCallback(async (file: File) => {
+    if (!file.type.startsWith('audio/') &&
+        !/\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name)) {
+      setMusicMessage('Please select a valid audio file.');
+      return;
+    }
+
+    const audio = musicAudioRef.current;
+    if (!audio) {
+      setMusicMessage('Music player is not ready. Try again.');
+      return;
+    }
+
+    const track: MusicTrack = {
+      id: makeMusicId(),
+      name: file.name,
+      blob: file,
+    };
+
+    // Create URL and start playback immediately from the upload action.
+    const url = URL.createObjectURL(file);
+    const nextTracks = [...musicTracksRef.current, track];
+    const nextUrls = [...musicUrlsRef.current, url];
+    const nextIndex = nextTracks.length - 1;
+
+    musicTracksRef.current = nextTracks;
+    musicUrlsRef.current = nextUrls;
+    currentMusicIndexRef.current = nextIndex;
+
+    setMusicTracks(nextTracks);
+    setCurrentMusicIndex(nextIndex);
+
+    audio.pause();
+    audio.src = url;
+    audio.load();
+    audio.volume = musicVolume;
+
+    try {
+      await audio.play();
+      setIsMusicPlaying(true);
+      setMusicMessage(`Now playing: ${file.name}`);
+    } catch (error) {
+      console.error('Music playback error:', error);
+      setIsMusicPlaying(false);
+      setMusicMessage('Music loaded. Tap Play to start.');
+    }
+
+    try {
+      await saveMusicTrack(track);
+    } catch (error) {
+      console.error('Could not save music:', error);
+      setMusicMessage('Music can play, but could not be saved for next time.');
+    }
+  }, [musicVolume]);
+
+  const handleMusicPlayPause = useCallback(async () => {
+    const audio = musicAudioRef.current;
+    if (!audio) return;
+
+    if (audio.paused) {
+      if (!audio.src && musicUrlsRef.current.length > 0) {
+        audio.src = musicUrlsRef.current[currentMusicIndexRef.current] || musicUrlsRef.current[0];
+      }
+
+      if (!audio.src) {
+        setMusicMessage('Choose a music file first.');
+        musicFileInputRef.current?.click();
+        return;
+      }
+
+      try {
+        await audio.play();
+        setIsMusicPlaying(true);
+        setMusicMessage('Music playing.');
+      } catch (error) {
+        console.error('Play failed:', error);
+        setMusicMessage('Could not play this file. Try another audio file.');
+        setIsMusicPlaying(false);
+      }
+    } else {
+      audio.pause();
+      setIsMusicPlaying(false);
+      setMusicMessage('Music paused.');
+    }
+  }, []);
+
+  const handleMusicNext = useCallback(async () => {
+    const urls = musicUrlsRef.current;
+    const audio = musicAudioRef.current;
+
+    if (!audio || urls.length === 0) return;
+
+    const nextIndex = (currentMusicIndexRef.current + 1) % urls.length;
+    currentMusicIndexRef.current = nextIndex;
+    setCurrentMusicIndex(nextIndex);
+
+    audio.src = urls[nextIndex];
+
+    try {
+      await audio.play();
+      setIsMusicPlaying(true);
+      setMusicMessage(`Now playing: ${musicTracksRef.current[nextIndex]?.name || 'Music'}`);
+    } catch {
+      setIsMusicPlaying(false);
+      setMusicMessage('Tap Play to start this track.');
+    }
+  }, []);
+
+  const handleMusicPrevious = useCallback(async () => {
+    const urls = musicUrlsRef.current;
+    const audio = musicAudioRef.current;
+
+    if (!audio || urls.length === 0) return;
+
+    const previousIndex =
+      (currentMusicIndexRef.current - 1 + urls.length) % urls.length;
+
+    currentMusicIndexRef.current = previousIndex;
+    setCurrentMusicIndex(previousIndex);
+
+    audio.src = urls[previousIndex];
+
+    try {
+      await audio.play();
+      setIsMusicPlaying(true);
+      setMusicMessage(`Now playing: ${musicTracksRef.current[previousIndex]?.name || 'Music'}`);
+    } catch {
+      setIsMusicPlaying(false);
+      setMusicMessage('Tap Play to start this track.');
+    }
+  }, []);
+
+  const handleMusicDelete = useCallback(async () => {
+    const index = currentMusicIndexRef.current;
+    const track = musicTracksRef.current[index];
+    if (!track) return;
+
+    const audio = musicAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+
+    const oldUrl = musicUrlsRef.current[index];
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+
+    const nextTracks = musicTracksRef.current.filter((_, i) => i !== index);
+    const nextUrls = musicUrlsRef.current.filter((_, i) => i !== index);
+
+    musicTracksRef.current = nextTracks;
+    musicUrlsRef.current = nextUrls;
+
+    setMusicTracks(nextTracks);
+    setIsMusicPlaying(false);
+
+    try {
+      await deleteSavedMusic(track.id);
+    } catch (error) {
+      console.error('Could not delete saved track:', error);
+    }
+
+    if (nextTracks.length > 0 && audio) {
+      const newIndex = Math.min(index, nextTracks.length - 1);
+      currentMusicIndexRef.current = newIndex;
+      setCurrentMusicIndex(newIndex);
+      audio.src = nextUrls[newIndex];
+      audio.load();
+      setMusicMessage('Track removed. Tap Play for the next track.');
+    } else {
+      currentMusicIndexRef.current = 0;
+      setCurrentMusicIndex(0);
+      setMusicMessage('Music removed.');
+    }
+  }, []);
+
+  const handleIntroStart = useCallback(() => {
+    setShowIntro(false);
+
+    const audio = musicAudioRef.current;
+    if (audio && audio.src) {
+      audio.play().then(() => {
+        setIsMusicPlaying(true);
+      }).catch(() => {
+        setIsMusicPlaying(false);
+        setMusicMessage('Tap Play to start music.');
+      });
+    }
+  }, []);
 
   // Create the game engine once.
   useEffect(() => {
@@ -242,6 +626,7 @@ export default function App() {
           boost: false,
         };
       }
+
       inputsRef.current = {
         steerLeft: false,
         steerRight: false,
@@ -278,7 +663,6 @@ export default function App() {
 
     socket.on('connect', () => {
       setMultiplayerMessage('Connected to multiplayer server.');
-      // The server stores usernames in memory, so re-register after reconnect.
       if (pendingUsernameRef.current) {
         socket.emit('setUsername', pendingUsernameRef.current, (result: ServerAck) => {
           if (result?.success && result.username) {
@@ -321,11 +705,13 @@ export default function App() {
 
     socket.on('roomInvite', (invite: RoomInvite) => {
       if (!invite?.inviteId || !invite?.roomCode || !invite?.from) return;
+
       setRoomInvites((previous) =>
         previous.some((item) => item.inviteId === invite.inviteId)
           ? previous
           : [...previous, invite]
       );
+
       setFriendsMessage(`${invite.from} invited you to a room.`);
       setShowFriends(true);
     });
@@ -382,12 +768,15 @@ export default function App() {
 
     const doCreate = () => {
       const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+
       socket.emit('createRoom', { roomCode: code, mode: multiplayerModeRef.current }, (result: ServerAck) => {
         setIsConnecting(false);
+
         if (!result?.success || !result.roomCode) {
           setMultiplayerMessage(result?.error || 'Could not create room.');
           return;
         }
+
         activeRoomRef.current = result.roomCode;
         setActiveRoom(result.roomCode);
         setRoomCode(result.roomCode);
@@ -406,6 +795,7 @@ export default function App() {
 
   const joinRoom = useCallback(() => {
     const code = roomCode.trim().toUpperCase();
+
     if (!/^[A-Z0-9]{4,8}$/.test(code)) {
       setMultiplayerMessage('Enter a valid room code (4–8 letters/numbers).');
       return;
@@ -418,10 +808,12 @@ export default function App() {
     const doJoin = () => {
       socket.emit('joinRoom', { roomCode: code }, (result: ServerAck) => {
         setIsConnecting(false);
+
         if (!result?.success || !result.roomCode) {
           setMultiplayerMessage(result?.error || 'Could not join room.');
           return;
         }
+
         activeRoomRef.current = result.roomCode;
         setActiveRoom(result.roomCode);
         setRoomCode(result.roomCode);
@@ -440,6 +832,7 @@ export default function App() {
 
   const setMyUsername = useCallback(() => {
     const cleanName = usernameInput.trim();
+
     if (!/^[a-zA-Z0-9_]{3,16}$/.test(cleanName)) {
       setFriendsMessage('Username must be 3–16 letters, numbers or underscores.');
       return;
@@ -453,10 +846,12 @@ export default function App() {
     const submit = () => {
       socket.emit('setUsername', cleanName, (result: ServerAck) => {
         setIsSettingUsername(false);
+
         if (!result?.success || !result.username) {
           setFriendsMessage(result?.error || 'Could not set username.');
           return;
         }
+
         pendingUsernameRef.current = result.username;
         setUsername(result.username);
         setUsernameInput(result.username);
@@ -477,16 +872,19 @@ export default function App() {
 
   const addFriend = useCallback(() => {
     const name = friendInput.trim();
+
     if (!username) {
       setFriendsMessage('Set your username first.');
       return;
     }
+
     if (!name) {
       setFriendsMessage('Enter a friend username.');
       return;
     }
 
     const socket = getSocket();
+
     socket.emit('addFriend', name, (result: ServerAck) => {
       setFriendsMessage(result?.success ? result.message || 'Friend request sent.' : result?.error || 'Could not send request.');
       if (result?.success) setFriendInput('');
@@ -495,6 +893,7 @@ export default function App() {
 
   const respondToFriendRequest = useCallback((requestUsername: string, accept: boolean) => {
     const socket = socketRef.current;
+
     if (!socket?.connected) {
       setFriendsMessage('Server is not connected.');
       return;
@@ -507,6 +906,7 @@ export default function App() {
 
   const inviteFriendToRoom = useCallback((friendUsername: string) => {
     const socket = socketRef.current;
+
     if (!socket?.connected) {
       setFriendsMessage('Server is not connected.');
       return;
@@ -519,6 +919,7 @@ export default function App() {
 
   const respondToRoomInvite = useCallback((invite: RoomInvite, accept: boolean) => {
     const socket = getSocket();
+
     socket.emit('respondRoomInvite', { inviteId: invite.inviteId, accept }, (result: ServerAck) => {
       setRoomInvites((previous) => previous.filter((item) => item.inviteId !== invite.inviteId));
 
@@ -526,6 +927,7 @@ export default function App() {
         setFriendsMessage(result?.error || 'Could not process room invite.');
         return;
       }
+
       if (!accept || !result.accepted || !result.roomCode) {
         setFriendsMessage('Room invite declined.');
         return;
@@ -563,6 +965,7 @@ export default function App() {
 
   const handlePause = useCallback(() => {
     const engine = engineRef.current;
+
     if (engine && engine.isRunning && !engine.isGameOver) {
       engine.pauseGame();
       setIsPaused(true);
@@ -588,6 +991,7 @@ export default function App() {
     setIsPaused(false);
     setGameStarted(false);
     sounds.stopAll();
+
     if (engineRef.current) {
       engineRef.current.isRunning = false;
       engineRef.current.clearRemotePlayers();
@@ -602,14 +1006,110 @@ export default function App() {
     });
   }, []);
 
+  const currentTrackName =
+    musicTracks[currentMusicIndex]?.name || 'No music selected';
+
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black font-sans select-none">
       <div ref={canvasMountRef} className="absolute inset-0 h-full w-full" />
 
+      {/* Intro screen */}
       {showIntro && (
-        <RoyalEnfieldIntro onStart={() => setShowIntro(false)} />
+        <RoyalEnfieldIntro
+          onStart={handleIntroStart}
+          onChooseMusic={(file) => {
+            void handleMusicUpload(file);
+          }}
+        />
       )}
 
+      {/* Hidden music file input for player controls */}
+      <input
+        ref={musicFileInputRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleMusicUpload(file);
+          event.target.value = '';
+        }}
+      />
+
+      {/* Music controls remain mounted across garage and race */}
+      {!showIntro && (
+        <div className="fixed bottom-3 left-3 z-[80] flex max-w-[calc(100vw-24px)] flex-wrap items-center gap-2 rounded-xl border border-amber-300/30 bg-black/85 p-2 text-white shadow-xl backdrop-blur-md">
+          <button
+            type="button"
+            onClick={handleMusicPrevious}
+            disabled={musicTracks.length === 0}
+            className="rounded-lg bg-slate-800 px-3 py-2 font-bold disabled:opacity-40"
+            aria-label="Previous track"
+          >
+            ⏮
+          </button>
+
+          <button
+            type="button"
+            onClick={handleMusicPlayPause}
+            className="rounded-lg bg-amber-700 px-3 py-2 font-bold"
+          >
+            {isMusicPlaying ? 'Ⅱ Pause' : '▶ Play'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleMusicNext}
+            disabled={musicTracks.length === 0}
+            className="rounded-lg bg-slate-800 px-3 py-2 font-bold disabled:opacity-40"
+            aria-label="Next track"
+          >
+            ⏭
+          </button>
+
+          <button
+            type="button"
+            onClick={() => musicFileInputRef.current?.click()}
+            className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-bold"
+          >
+            + Add
+          </button>
+
+          <button
+            type="button"
+            onClick={handleMusicDelete}
+            disabled={musicTracks.length === 0}
+            className="rounded-lg bg-red-900 px-3 py-2 text-sm font-bold disabled:opacity-40"
+            aria-label="Delete current track"
+          >
+            🗑
+          </button>
+
+          <div className="min-w-0 max-w-32">
+            <p className="truncate text-xs font-semibold text-amber-200">
+              {currentTrackName}
+            </p>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={musicVolume}
+              onChange={(event) => setMusicVolume(Number(event.target.value))}
+              className="w-full accent-amber-400"
+              aria-label="Music volume"
+            />
+          </div>
+
+          {musicMessage && (
+            <span className="max-w-40 text-[10px] text-amber-100">
+              {musicMessage}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Game HUD */}
       {gameStarted && !isPaused && !isGameOver && (
         <HUD
           stats={gameStats}
@@ -621,6 +1121,7 @@ export default function App() {
         />
       )}
 
+      {/* Garage */}
       {!showIntro && !gameStarted && !isGameOver && (
         <>
           <StartScreen
@@ -682,7 +1183,9 @@ export default function App() {
                     <button onClick={createRoom} disabled={isConnecting} className="mb-3 w-full rounded-xl bg-cyan-600 p-3 font-bold disabled:opacity-50">
                       {isConnecting ? 'Connecting...' : 'Create Private Room'}
                     </button>
+
                     <div className="my-3 text-center text-xs text-slate-400">OR JOIN FRIEND</div>
+
                     <input
                       value={roomCode}
                       onChange={(event) => setRoomCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
@@ -690,6 +1193,7 @@ export default function App() {
                       maxLength={8}
                       className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-center text-lg uppercase tracking-[0.2em] text-white outline-none focus:border-cyan-300"
                     />
+
                     <button onClick={joinRoom} disabled={isConnecting} className="w-full rounded-xl bg-indigo-600 p-3 font-bold disabled:opacity-50">
                       Join Room
                     </button>
@@ -699,26 +1203,35 @@ export default function App() {
                     <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/40 p-4 text-center">
                       <p className="text-sm text-emerald-200">ROOM CODE</p>
                       <p className="my-2 text-3xl font-black tracking-[0.25em]">{activeRoom}</p>
+
                       <button
                         onClick={() => {
                           if (navigator.clipboard?.writeText) {
                             navigator.clipboard.writeText(activeRoom)
                               .then(() => setMultiplayerMessage('Room code copied.'))
                               .catch(() => setMultiplayerMessage(`Share code: ${activeRoom}`));
-                          } else setMultiplayerMessage(`Share code: ${activeRoom}`);
+                          } else {
+                            setMultiplayerMessage(`Share code: ${activeRoom}`);
+                          }
                         }}
                         className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold"
                       >
                         Copy Room Code
                       </button>
+
                       <p className="mt-3 text-sm">Players connected: {playerCount}/4</p>
                     </div>
+
                     <p className="mt-3 text-sm text-slate-300">Close this panel and start the ride from the existing garage screen.</p>
                     <button onClick={leaveRoom} className="mt-4 w-full rounded-xl bg-red-700 p-3 font-bold">Leave Room</button>
                   </>
                 )}
 
-                {multiplayerMessage && <p className="mt-4 break-words text-center text-sm text-cyan-200" role="status">{multiplayerMessage}</p>}
+                {multiplayerMessage && (
+                  <p className="mt-4 break-words text-center text-sm text-cyan-200" role="status">
+                    {multiplayerMessage}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -741,6 +1254,7 @@ export default function App() {
                       maxLength={16}
                       className="mb-3 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-white outline-none focus:border-emerald-300"
                     />
+
                     <button onClick={setMyUsername} disabled={isSettingUsername} className="w-full rounded-xl bg-emerald-600 p-3 font-bold disabled:opacity-50">
                       {isSettingUsername ? 'Connecting...' : 'Set Username'}
                     </button>
@@ -790,7 +1304,9 @@ export default function App() {
                         <div key={friend.username} className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-900 p-3">
                           <div className="min-w-0">
                             <p className="break-all font-semibold">{friend.username}</p>
-                            <p className={`text-xs ${friend.online ? 'text-emerald-300' : 'text-slate-500'}`}>{friend.online ? '● Online' : '○ Offline'}</p>
+                            <p className={`text-xs ${friend.online ? 'text-emerald-300' : 'text-slate-500'}`}>
+                              {friend.online ? '● Online' : '○ Offline'}
+                            </p>
                           </div>
                           <button
                             disabled={!friend.online || !activeRoom}
@@ -801,7 +1317,9 @@ export default function App() {
                           </button>
                         </div>
                       ))}
-                      {!activeRoom && friends.length > 0 && <p className="mt-2 text-xs text-slate-400">Invite button use cheyyaan Multiplayer-il room create/join cheyyu.</p>}
+                      {!activeRoom && friends.length > 0 && (
+                        <p className="mt-2 text-xs text-slate-400">Invite button use cheyyaan Multiplayer-il room create/join cheyyu.</p>
+                      )}
                     </div>
 
                     <div>
@@ -822,7 +1340,11 @@ export default function App() {
                   </>
                 )}
 
-                {friendsMessage && <p className="mt-4 break-words rounded-lg bg-slate-900 p-3 text-sm text-cyan-200" role="status">{friendsMessage}</p>}
+                {friendsMessage && (
+                  <p className="mt-4 break-words rounded-lg bg-slate-900 p-3 text-sm text-cyan-200" role="status">
+                    {friendsMessage}
+                  </p>
+                )}
               </div>
             </div>
           )}
