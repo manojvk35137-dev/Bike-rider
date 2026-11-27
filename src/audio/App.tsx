@@ -150,7 +150,14 @@ export default function App() {
   // Audio gain and draggable panel refs
   const musicAudioContextRef = useRef<AudioContext | null>(null);
   const musicPanelRef = useRef<HTMLDivElement>(null);
-  const musicDragRef = useRef<{ x: number; y: number } | null>(null);
+
+  const musicDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startLeft: number;
+    startTop: number;
+  } | null>(null);
 
   const [showIntro, setShowIntro] = useState(true);
   const [selectedBike, setSelectedBike] =
@@ -174,8 +181,10 @@ export default function App() {
   const [musicPosition, setMusicPosition] = useState(() => {
     try {
       const saved = localStorage.getItem('bike_music_position');
+
       if (saved) {
         const position = JSON.parse(saved);
+
         if (
           Number.isFinite(position?.x) &&
           Number.isFinite(position?.y)
@@ -289,7 +298,7 @@ export default function App() {
       const source = context.createMediaElementSource(audio);
       const gain = context.createGain();
 
-      // Increase music output gain.
+      // Increased music output gain.
       gain.gain.value = 1.8;
 
       source.connect(gain);
@@ -398,6 +407,51 @@ export default function App() {
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Drag from anywhere on the music player.
+  // Window listeners keep dragging reliable even when the pointer moves
+  // outside the player while dragging.
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = musicDragRef.current;
+      const panel = musicPanelRef.current;
+
+      if (!drag || !panel || drag.pointerId !== event.pointerId) return;
+
+      const width = panel.offsetWidth;
+      const height = panel.offsetHeight;
+
+      const nextX = drag.startLeft + (event.clientX - drag.startX);
+      const nextY = drag.startTop + (event.clientY - drag.startY);
+
+      setMusicPosition({
+        x: Math.max(0, Math.min(window.innerWidth - width, nextX)),
+        y: Math.max(0, Math.min(window.innerHeight - height, nextY)),
+      });
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (musicDragRef.current?.pointerId === event.pointerId) {
+        musicDragRef.current = null;
+      }
+    };
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      if (musicDragRef.current?.pointerId === event.pointerId) {
+        musicDragRef.current = null;
+      }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
+    };
   }, []);
 
   const handleMusicUpload = useCallback(async (file: File) => {
@@ -1186,6 +1240,24 @@ export default function App() {
     });
   }, []);
 
+  const handleMusicPanelPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const panel = musicPanelRef.current;
+      if (!panel) return;
+
+      const rect = panel.getBoundingClientRect();
+
+      musicDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+      };
+    },
+    []
+  );
+
   const currentTrackName =
     musicTracks[currentMusicIndex]?.name || 'No music selected';
 
@@ -1223,57 +1295,18 @@ export default function App() {
           style={{
             left: musicPosition.x,
             top: musicPosition.y,
+            touchAction: 'none',
           }}
-          className="fixed z-[80] w-[210px] max-w-[calc(100vw-16px)] rounded-xl border border-amber-500/40 bg-[#080808]/95 p-2 text-white shadow-lg backdrop-blur-md"
+          onPointerDown={handleMusicPanelPointerDown}
+          className="fixed z-[80] w-[185px] max-w-[calc(100vw-16px)] rounded-xl border border-amber-500/40 bg-[#080808]/95 p-1.5 text-white shadow-lg backdrop-blur-md select-none"
         >
-          <div
-            className="mb-1 flex min-w-0 cursor-move touch-none select-none items-center gap-1.5"
-            onPointerDown={(event) => {
-              const rect = musicPanelRef.current?.getBoundingClientRect();
-              if (!rect) return;
-
-              musicDragRef.current = {
-                x: event.clientX - rect.left,
-                y: event.clientY - rect.top,
-              };
-
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              if (!musicDragRef.current || !musicPanelRef.current) return;
-
-              const panel = musicPanelRef.current;
-              const width = panel.offsetWidth;
-              const height = panel.offsetHeight;
-
-              setMusicPosition({
-                x: Math.max(
-                  0,
-                  Math.min(
-                    window.innerWidth - width,
-                    event.clientX - musicDragRef.current.x
-                  )
-                ),
-                y: Math.max(
-                  0,
-                  Math.min(
-                    window.innerHeight - height,
-                    event.clientY - musicDragRef.current.y
-                  )
-                ),
-              });
-            }}
-            onPointerUp={() => {
-              musicDragRef.current = null;
-            }}
-            onPointerCancel={() => {
-              musicDragRef.current = null;
-            }}
-          >
+          <div className="mb-1 flex min-w-0 cursor-move items-center gap-1.5">
             <span className="text-sm text-amber-400">♫</span>
+
             <p className="min-w-0 flex-1 truncate text-[10px] font-bold tracking-wide text-amber-200">
               {currentTrackName}
             </p>
+
             <span className="text-[9px] text-amber-500">RE MUSIC</span>
           </div>
 
@@ -1282,7 +1315,7 @@ export default function App() {
               type="button"
               onClick={handleMusicPrevious}
               disabled={musicTracks.length === 0}
-              className="h-7 w-7 rounded-md border border-amber-500/20 bg-zinc-900 text-xs text-amber-200 disabled:opacity-40"
+              className="h-6 w-6 rounded-md border border-amber-500/20 bg-zinc-900 text-xs text-amber-200 disabled:opacity-40"
               aria-label="Previous track"
             >
               ⏮
@@ -1291,7 +1324,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleMusicPlayPause}
-              className="h-7 min-w-12 rounded-md border border-amber-500/40 bg-amber-700 px-2 text-xs font-bold text-white"
+              className="h-6 min-w-10 rounded-md border border-amber-500/40 bg-amber-700 px-2 text-xs font-bold text-white"
               aria-label={isMusicPlaying ? 'Pause music' : 'Play music'}
             >
               {isMusicPlaying ? 'Ⅱ' : '▶'}
@@ -1301,7 +1334,7 @@ export default function App() {
               type="button"
               onClick={handleMusicNext}
               disabled={musicTracks.length === 0}
-              className="h-7 w-7 rounded-md border border-amber-500/20 bg-zinc-900 text-xs text-amber-200 disabled:opacity-40"
+              className="h-6 w-6 rounded-md border border-amber-500/20 bg-zinc-900 text-xs text-amber-200 disabled:opacity-40"
               aria-label="Next track"
             >
               ⏭
@@ -1310,7 +1343,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => musicFileInputRef.current?.click()}
-              className="h-7 rounded-md border border-amber-500/30 bg-zinc-900 px-2 text-[10px] font-bold text-amber-200"
+              className="h-6 rounded-md border border-amber-500/30 bg-zinc-900 px-2 text-[10px] font-bold text-amber-200"
             >
               + ADD
             </button>
@@ -1319,7 +1352,7 @@ export default function App() {
               type="button"
               onClick={handleMusicDelete}
               disabled={musicTracks.length === 0}
-              className="h-7 w-7 rounded-md bg-zinc-900 text-xs text-red-400 disabled:opacity-40"
+              className="h-6 w-6 rounded-md bg-zinc-900 text-xs text-red-400 disabled:opacity-40"
               aria-label="Delete current track"
             >
               🗑
@@ -1328,6 +1361,7 @@ export default function App() {
 
           <div className="mt-1 flex items-center gap-2">
             <span className="text-[10px] text-amber-400">VOL</span>
+
             <input
               type="range"
               min="0"
@@ -1397,6 +1431,7 @@ export default function App() {
               <div className="w-full max-w-md rounded-2xl border border-cyan-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">Multiplayer</h2>
+
                   <button
                     onClick={() => setShowMultiplayer(false)}
                     className="rounded-lg bg-slate-800 px-3 py-2"
@@ -1480,6 +1515,7 @@ export default function App() {
                   <>
                     <div className="rounded-xl border border-emerald-400/40 bg-emerald-950/40 p-4 text-center">
                       <p className="text-sm text-emerald-200">ROOM CODE</p>
+
                       <p className="my-2 text-3xl font-black tracking-[0.25em]">
                         {activeRoom}
                       </p>
@@ -1543,6 +1579,7 @@ export default function App() {
               <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-emerald-300/40 bg-slate-950 p-5 text-white shadow-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-xl font-extrabold">👥 Friends</h2>
+
                   <button
                     onClick={() => setShowFriends(false)}
                     className="rounded-lg bg-slate-800 px-3 py-2"
@@ -1579,6 +1616,7 @@ export default function App() {
                   <>
                     <div className="mb-4 rounded-xl bg-slate-900 p-3">
                       <p className="text-xs text-slate-400">YOUR USERNAME</p>
+
                       <p className="text-lg font-bold text-emerald-300">
                         {username}
                       </p>
