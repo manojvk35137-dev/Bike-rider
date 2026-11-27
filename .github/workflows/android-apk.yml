@@ -1,4 +1,3 @@
-
 name: Bike Rider Android APK
 
 on:
@@ -44,6 +43,43 @@ jobs:
 
       - name: Create Android project
         run: npx cap add android
+
+      - name: Set Android app orientation to landscape
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          if not manifest.is_file():
+              print(f"ERROR: Android manifest not found: {manifest}")
+              sys.exit(1)
+
+          content = manifest.read_text(encoding="utf-8")
+          pattern = re.compile(
+              r'<activity\b(?=[^>]*\bandroid:name="[^"]*MainActivity")[^>]*>',
+              re.DOTALL
+          )
+          match = pattern.search(content)
+          if not match:
+              print("ERROR: Could not find the MainActivity entry in AndroidManifest.xml")
+              sys.exit(1)
+
+          activity_tag = match.group(0)
+          if re.search(r'\bandroid:screenOrientation="[^"]*"', activity_tag):
+              updated_tag = re.sub(
+                  r'\bandroid:screenOrientation="[^"]*"',
+                  'android:screenOrientation="landscape"',
+                  activity_tag
+              )
+          else:
+              updated_tag = activity_tag[:-1] + ' android:screenOrientation="landscape">'
+
+          content = content[:match.start()] + updated_tag + content[match.end():]
+          manifest.write_text(content, encoding="utf-8")
+          print("MainActivity orientation set to landscape.")
+          PY
 
       - name: Generate Android app icons
         run: |
