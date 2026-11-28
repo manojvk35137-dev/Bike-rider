@@ -2,6 +2,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { buildFullMotorcycleMesh } from './FullMotorcycleModel';
 import { MotorcycleConfig } from './motorcycles';
 
@@ -93,9 +94,65 @@ export const MotorcycleViewer3D: React.FC<MotorcycleViewer3DProps> = ({ bike }) 
     scene.add(ring);
 
     const bikeGroup = new THREE.Group();
-    const mesh = buildFullMotorcycleMesh(bike);
-    bikeGroup.add(mesh);
+    // Keep the procedural model as a fallback while the licensed GLB loads.
+    const fallbackMesh = buildFullMotorcycleMesh(bike);
+    bikeGroup.add(fallbackMesh);
     scene.add(bikeGroup);
+
+    let loadedBike: THREE.Object3D | null = null;
+    let disposed = false;
+    if (bike.id === 'bullet-350') {
+      const loader = new GLTFLoader();
+      loader.load(
+        `${import.meta.env.BASE_URL}models/bullet-350.glb`,
+        (gltf) => {
+          if (disposed) {
+            gltf.scene.traverse((object) => {
+              if (object instanceof THREE.Mesh) {
+                object.geometry.dispose();
+                const materials = Array.isArray(object.material) ? object.material : [object.material];
+                materials.forEach((material) => {
+                  Object.values(material).forEach((value) => {
+                    if (value instanceof THREE.Texture) value.dispose();
+                  });
+                  material.dispose();
+                });
+              }
+            });
+            return;
+          }
+          loadedBike = gltf.scene;
+          const bounds = new THREE.Box3().setFromObject(loadedBike);
+          const size = bounds.getSize(new THREE.Vector3());
+          const center = bounds.getCenter(new THREE.Vector3());
+          // The Sketchfab model is laid out along X; align its length with the game's Z axis.
+          loadedBike.rotation.y = Math.PI / 2;
+          loadedBike.updateMatrixWorld(true);
+          const rotatedBounds = new THREE.Box3().setFromObject(loadedBike);
+          const rotatedSize = rotatedBounds.getSize(new THREE.Vector3());
+          const rotatedCenter = rotatedBounds.getCenter(new THREE.Vector3());
+          const targetLength = 2.05;
+          const scale = targetLength / Math.max(rotatedSize.x, rotatedSize.z);
+          loadedBike.scale.setScalar(scale);
+          loadedBike.position.set(
+            -rotatedCenter.x * scale,
+            -rotatedBounds.min.y * scale,
+            -rotatedCenter.z * scale
+          );
+          loadedBike.traverse((object) => {
+            if (object instanceof THREE.Mesh) {
+              object.castShadow = true;
+              object.receiveShadow = true;
+            }
+          });
+          bikeGroup.remove(fallbackMesh);
+          bikeGroup.add(loadedBike);
+        },
+        undefined,
+        (error) => console.error('Bullet 350 GLB could not load; using procedural fallback.', error)
+      );
+    }
+
 
     let isDragging = false;
     let prevMouseX = 0;
@@ -129,7 +186,6 @@ export const MotorcycleViewer3D: React.FC<MotorcycleViewer3DProps> = ({ bike }) 
     window.addEventListener('touchend', onPointerUp);
 
     let animId = 0;
-    let disposed = false;
 
     const animate = () => {
       if (disposed) return;
@@ -171,7 +227,12 @@ export const MotorcycleViewer3D: React.FC<MotorcycleViewer3DProps> = ({ bike }) 
           const materials = Array.isArray(object.material)
             ? object.material
             : [object.material];
-          materials.forEach((material) => material.dispose());
+          materials.forEach((material) => {
+            Object.values(material).forEach((value) => {
+              if (value instanceof THREE.Texture) value.dispose();
+            });
+            material.dispose();
+          });
         }
       });
 
