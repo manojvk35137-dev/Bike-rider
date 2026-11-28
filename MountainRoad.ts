@@ -149,7 +149,7 @@ export class MountainRoad {
       uvs.push(0, i / samples, 1, i / samples);
       if (i < samples) {
         const n = i * 2;
-        indices.push(n, n + 2, n + 1, n + 1, n + 2, n + 3);
+        indices.push(n, n + 1, n + 2, n + 1, n + 3, n + 2);
       }
     }
     const geometry = new THREE.BufferGeometry();
