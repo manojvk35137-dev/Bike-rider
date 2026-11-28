@@ -1,3 +1,4 @@
+
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { sounds } from './src/audio/SoundEffects';
@@ -102,7 +103,6 @@ export class GameEngine {
       fog: false,
       toneMapped: false,
       depthWrite: false,
-      // Keep depth testing enabled so the sky cannot draw over the road or scenery.
       depthTest: true,
     });
     this.skyDome = new THREE.Mesh(skyGeo, skyMat);
@@ -277,6 +277,7 @@ export class GameEngine {
     let steerDir = 0;
     if (this.inputs.steerLeft) steerDir--;
     if (this.inputs.steerRight) steerDir++;
+
     const safeSpeed = Math.max(0, Number.isFinite(this.speedKmh) ? this.speedKmh : 0);
     const speedRatio = Math.max(0.18, Math.min(1, safeSpeed / Math.max(1, bike.topSpeedKmh)));
     this.playerX += steerDir * bike.steerRate * speedRatio * delta;
@@ -285,62 +286,114 @@ export class GameEngine {
       this.playerX = Math.sign(this.playerX) * maxX;
       this.speedKmh = Math.max(0, safeSpeed - 3 * delta);
     }
+
     this.targetLean = -steerDir * MAX_LEAN_ANGLE;
     this.currentLean = THREE.MathUtils.damp(this.currentLean, this.targetLean, 8, delta);
+
     const topSpeed = Math.max(1, bike.topSpeedKmh);
     this.throttleIntensity = THREE.MathUtils.damp(this.throttleIntensity, this.inputs.throttle ? 1 : 0, 4.2, delta);
     this.brakeIntensity = THREE.MathUtils.damp(this.brakeIntensity, this.inputs.brake ? 1 : 0, 7, delta);
+
     const currentSpeed = Math.max(0, Number.isFinite(this.speedKmh) ? this.speedKmh : 0);
+
     if (this.brakeIntensity > 0.05) {
       this.speedKmh = Math.max(0, currentSpeed - bike.brakeRate * this.brakeIntensity * delta);
     } else if (this.throttleIntensity > 0.02) {
-      const normalized = Math.min(1, currentSpeed / topSpeed);
-      const power = Math.max(0.24, 1 - Math.pow(normalized, 1.35));
-      this.speedKmh = Math.min(topSpeed, currentSpeed + bike.accelRate * 1.3 * this.throttleIntensity * power * delta);
+      if (this.inputs.boost) {
+        // Nitro ON: unlimited acceleration, no top-speed cap.
+        this.speedKmh = currentSpeed +
+          bike.accelRate * 1.3 * this.throttleIntensity * delta;
+      } else {
+        // Nitro OFF: retain the normal bike top-speed limit.
+        const normalized = Math.min(1, currentSpeed / topSpeed);
+        const power = Math.max(0.24, 1 - Math.pow(normalized, 1.35));
+        this.speedKmh = Math.min(
+          topSpeed,
+          currentSpeed + bike.accelRate * 1.3 * this.throttleIntensity * power * delta
+        );
+      }
     } else {
       const drag = 0.25 + (currentSpeed / 100) * 0.35;
       this.speedKmh = Math.max(0, currentSpeed - drag * delta);
     }
+
     if (!Number.isFinite(this.speedKmh) || this.speedKmh < 0) this.speedKmh = 0;
     this.maxSpeedReached = Math.max(this.maxSpeedReached, Math.round(this.speedKmh));
+
     this.updateGears();
+
     const speedMs = this.speedKmh / 3.6;
     const previousPlayerZ = this.playerZ;
-    // Nitro accelerates world traversal only; the displayed/physical speed remains unchanged.
-    const visualSpeedMs = speedMs * (this.inputs.boost ? 8 : 1);
-    this.playerZ -= visualSpeedMs * delta;
+
+    // Use actual speed for player movement, scenery, distance and traffic synchronization.
+    this.playerZ -= speedMs * delta;
     this.distanceMeters += speedMs * delta;
+
     if (this.speedKmh > 80) this.score += Math.round((this.speedKmh - 80) * 0.14);
+
     if (this.mode === 'time-rush') {
       this.timeLeft -= delta;
-      if (this.timeLeft <= 0) { this.timeLeft = 0; this.handleCrash(); }
+      if (this.timeLeft <= 0) {
+        this.timeLeft = 0;
+        this.handleCrash();
+      }
     }
-    const pitch = GAME_CONSTANTS.CAMERA_BASE_PITCH + (this.inputs.throttle ? -0.012 : 0) + (this.inputs.brake ? 0.024 : 0);
+
+    const pitch = GAME_CONSTANTS.CAMERA_BASE_PITCH +
+      (this.inputs.throttle ? -0.012 : 0) +
+      (this.inputs.brake ? 0.024 : 0);
+
     const roadSample = this.scenery.roadPath.sample(-this.playerZ);
-    this.camera.position.copy(this.scenery.roadPath.toWorld(-this.playerZ, this.playerX + this.currentLean * 0.12, GAME_CONSTANTS.CAMERA_HEIGHT));
+    this.camera.position.copy(
+      this.scenery.roadPath.toWorld(
+        -this.playerZ,
+        this.playerX + this.currentLean * 0.12,
+        GAME_CONSTANTS.CAMERA_HEIGHT
+      )
+    );
     this.camera.rotation.set(pitch, roadSample.yaw - steerDir * 0.035, this.currentLean);
     this.skyDome.position.copy(this.camera.position);
+
     const time = this.clock.getElapsedTime();
-    this.cockpit.updatePhysics(steerDir, this.inputs.brake, this.throttleIntensity, this.speedKmh, time);
+    this.cockpit.updatePhysics(
+      steerDir, this.inputs.brake, this.throttleIntensity, this.speedKmh, time
+    );
     this.cockpit.updateDash(this.speedKmh, this.rpmNorm, this.gear, this.distanceMeters);
+
     this.scenery.update(this.playerZ);
     this.traffic.update(delta, this.playerX, this.playerZ, this.speedKmh, previousPlayerZ);
+
     sounds.updateEngine(this.speedKmh, this.rpmNorm, this.inputs.throttle, this.inputs.brake);
     sounds.setHorn(this.inputs.horn);
-    if (this.onStatsUpdate && Math.floor(time * 30) % 2 === 0) this.onStatsUpdate(this.getStatsSnapshot());
+
+    if (this.onStatsUpdate && Math.floor(time * 30) % 2 === 0) {
+      this.onStatsUpdate(this.getStatsSnapshot());
+    }
   }
 
   private updateGears() {
     const max = this.currentBike.topSpeedKmh;
     const count = this.currentBike.id.includes('450') ? 6 : 5;
     let gear = 1, min = 0, maxGear = max / count;
+
     for (let g = 1; g <= count; g++) {
       const gMin = ((g - 1) / count) * max * 0.85;
       const gMax = (g / count) * max * (g === count ? 1.05 : 0.95);
-      if (this.speedKmh >= gMin) { gear = g; min = gMin; maxGear = gMax; }
+      if (this.speedKmh >= gMin) {
+        gear = g;
+        min = gMin;
+        maxGear = gMax;
+      }
     }
-    if (gear !== this.gear) { sounds.playGearShift(); this.gear = gear; }
-    const progress = THREE.MathUtils.clamp((this.speedKmh - min) / Math.max(1, maxGear - min), 0, 1);
+
+    if (gear !== this.gear) {
+      sounds.playGearShift();
+      this.gear = gear;
+    }
+
+    const progress = THREE.MathUtils.clamp(
+      (this.speedKmh - min) / Math.max(1, maxGear - min), 0, 1
+    );
     this.rpmNorm = 0.2 + progress * 0.8;
   }
 
@@ -351,11 +404,19 @@ export class GameEngine {
     this.camera.rotation.z += this.crashAngularVel.z * delta;
     this.speedKmh = Math.max(0, this.speedKmh - 75 * delta);
     this.playerZ -= (this.speedKmh / 3.6) * delta;
-    this.camera.position.copy(this.scenery.roadPath.toWorld(-this.playerZ, this.playerX, Math.max(0.35, GAME_CONSTANTS.CAMERA_HEIGHT - this.crashTimer * 1.8)));
+    this.camera.position.copy(
+      this.scenery.roadPath.toWorld(
+        -this.playerZ,
+        this.playerX,
+        Math.max(0.35, GAME_CONSTANTS.CAMERA_HEIGHT - this.crashTimer * 1.8)
+      )
+    );
     this.skyDome.position.copy(this.camera.position);
     this.scenery.update(this.playerZ);
+
     if (this.crashTimer > 1.3 && !this.isGameOver) {
-      this.isGameOver = true; this.isRunning = false;
+      this.isGameOver = true;
+      this.isRunning = false;
       this.onGameOver?.(this.getStatsSnapshot());
     }
   }
@@ -377,15 +438,23 @@ export class GameEngine {
     if (!width || !height) return;
     const aspect = width / height;
     this.camera.aspect = aspect;
+
     if (aspect < 1) {
       const targetH = 72 * Math.PI / 180;
       const vFov = 2 * Math.atan(Math.tan(targetH / 2) / aspect);
       this.camera.fov = Math.min(84, Math.max(62, vFov * 180 / Math.PI));
-      if (this.cockpit) { this.cockpit.group.scale.setScalar(0.9); this.cockpit.group.position.set(0, -0.035, 0.03); }
+      if (this.cockpit) {
+        this.cockpit.group.scale.setScalar(0.9);
+        this.cockpit.group.position.set(0, -0.035, 0.03);
+      }
     } else {
       this.camera.fov = 60;
-      if (this.cockpit) { this.cockpit.group.scale.setScalar(1); this.cockpit.group.position.set(0, 0, 0); }
+      if (this.cockpit) {
+        this.cockpit.group.scale.setScalar(1);
+        this.cockpit.group.position.set(0, 0, 0);
+      }
     }
+
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
   };
@@ -400,10 +469,15 @@ export class GameEngine {
     sounds.stopAll();
     this.scenery.dispose();
     this.renderer.dispose();
+
     const skyMaterial = this.skyDome.material;
     if (Array.isArray(skyMaterial)) skyMaterial.forEach(m => m.dispose());
     else skyMaterial.dispose();
+
     this.skyDome.geometry.dispose();
-    if (this.renderer.domElement.parentElement === this.container) this.container.removeChild(this.renderer.domElement);
+
+    if (this.renderer.domElement.parentElement === this.container) {
+      this.container.removeChild(this.renderer.domElement);
+    }
   }
 }
