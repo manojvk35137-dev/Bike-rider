@@ -227,6 +227,7 @@ export class GameEngine {
     this.maxSpeedReached = 0; this.timeLeft = mode === 'time-rush' ? 75 : 9999;
     this.gear = 1; this.rpmNorm = 0.2; this.currentLean = 0; this.targetLean = 0;
     this.throttleIntensity = 0; this.brakeIntensity = 0;
+    this.inputs.boost = false;
     this.camera.position.copy(this.scenery.roadPath.toWorld(-this.playerZ, this.playerX, GAME_CONSTANTS.CAMERA_HEIGHT));
     this.camera.rotation.set(GAME_CONSTANTS.CAMERA_BASE_PITCH, this.scenery.roadPath.getYaw(-this.playerZ), 0);
     this.updateCameraPerspective();
@@ -244,7 +245,7 @@ export class GameEngine {
 
   private handleCrash() {
     if (this.isCrashing || this.isGameOver) return;
-    this.isCrashing = true; this.crashTimer = 0;
+    this.isCrashing = true; this.crashTimer = 0; this.inputs.boost = false;
     this.crashAngularVel.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 15);
     sounds.playCrash(); sounds.stopAll();
   }
@@ -304,7 +305,10 @@ export class GameEngine {
     this.maxSpeedReached = Math.max(this.maxSpeedReached, Math.round(this.speedKmh));
     this.updateGears();
     const speedMs = this.speedKmh / 3.6;
-    this.playerZ -= speedMs * delta;
+    const previousPlayerZ = this.playerZ;
+    // Nitro accelerates world traversal only; the displayed/physical speed remains unchanged.
+    const visualSpeedMs = speedMs * (this.inputs.boost ? 8 : 1);
+    this.playerZ -= visualSpeedMs * delta;
     this.distanceMeters += speedMs * delta;
     if (this.speedKmh > 80) this.score += Math.round((this.speedKmh - 80) * 0.14);
     if (this.mode === 'time-rush') {
@@ -320,7 +324,7 @@ export class GameEngine {
     this.cockpit.updatePhysics(steerDir, this.inputs.brake, this.throttleIntensity, this.speedKmh, time);
     this.cockpit.updateDash(this.speedKmh, this.rpmNorm, this.gear, this.distanceMeters);
     this.scenery.update(this.playerZ);
-    this.traffic.update(delta, this.playerX, this.playerZ, this.speedKmh);
+    this.traffic.update(delta, this.playerX, this.playerZ, this.speedKmh, previousPlayerZ);
     sounds.updateEngine(this.speedKmh, this.rpmNorm, this.inputs.throttle, this.inputs.brake);
     sounds.setHorn(this.inputs.horn);
     if (this.onStatsUpdate && Math.floor(time * 30) % 2 === 0) this.onStatsUpdate(this.getStatsSnapshot());

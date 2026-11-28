@@ -21,6 +21,7 @@ export const HUD: React.FC<HUDProps> = ({
   mode,
 }) => {
   const [closeCallBanner, setCloseCallBanner] = useState<{ text: string; id: number } | null>(null);
+  const [, setNitroRender] = useState(0);
 
   useEffect(() => {
     if (stats.lastCloseCallText) {
@@ -200,16 +201,17 @@ export const HUD: React.FC<HUDProps> = ({
         <div className="flex items-end space-x-2 pointer-events-auto">
           {/* Boost / Nitro Button */}
           <button
-            {...bindTouch('boost')}
+            onClick={() => { inputs.boost = !inputs.boost; setNitroRender((value) => value + 1); }}
             className={`touch-btn w-14 h-14 md:w-16 md:h-16 rounded-2xl flex flex-col items-center justify-center font-black transition active:scale-90 border ${
               inputs.boost
                 ? 'bg-amber-500 text-black border-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.8)]'
                 : 'bg-zinc-900/80 text-amber-400 border-amber-600/50 hover:bg-zinc-800'
             }`}
-            title="Nitrous Boost [Space]"
+            title={`Nitrous Boost [Space] — ${inputs.boost ? 'ON' : 'OFF'}`}
+            aria-pressed={inputs.boost}
           >
             <Flame className="w-6 h-6" />
-            <span className="text-[9px] tracking-wider font-bold">NITRO</span>
+            <span className="text-[9px] tracking-wider font-bold">{inputs.boost ? 'NITRO ON' : 'NITRO'}</span>
           </button>
 
           {/* Brake Handle (Red) */}
