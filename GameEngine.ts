@@ -80,7 +80,8 @@ export class GameEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
-    this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 1.5));
+    const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+    this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -122,7 +123,7 @@ export class GameEngine {
     sun.position.set(35, 75, -50);
     sun.castShadow = !this.isSoftwareGl;
     if (sun.castShadow) {
-      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.mapSize.set(isMobile ? 1024 : 2048, isMobile ? 1024 : 2048);
       sun.shadow.camera.near = 10;
       sun.shadow.camera.far = 180;
       sun.shadow.camera.left = -30;
@@ -140,7 +141,7 @@ export class GameEngine {
     this.camera.add(this.cockpit.group);
     this.scene.add(this.camera);
     this.scenery = new SceneryManager(this.scene, maxAnisotropy);
-    this.traffic = new TrafficManager(this.scene, this.mode);
+    this.traffic = new TrafficManager(this.scene, this.mode, this.scenery.roadPath);
     this.traffic.onCollision = () => this.handleCrash();
     this.traffic.onCloseCall = (info) => this.handleCloseCall(info);
     this.clock = new THREE.Clock();
@@ -226,8 +227,8 @@ export class GameEngine {
     this.maxSpeedReached = 0; this.timeLeft = mode === 'time-rush' ? 75 : 9999;
     this.gear = 1; this.rpmNorm = 0.2; this.currentLean = 0; this.targetLean = 0;
     this.throttleIntensity = 0; this.brakeIntensity = 0;
-    this.camera.position.set(0, GAME_CONSTANTS.CAMERA_HEIGHT, GAME_CONSTANTS.CAMERA_Z);
-    this.camera.rotation.set(GAME_CONSTANTS.CAMERA_BASE_PITCH, 0, 0);
+    this.camera.position.copy(this.scenery.roadPath.toWorld(-this.playerZ, this.playerX, GAME_CONSTANTS.CAMERA_HEIGHT));
+    this.camera.rotation.set(GAME_CONSTANTS.CAMERA_BASE_PITCH, this.scenery.roadPath.getYaw(-this.playerZ), 0);
     this.updateCameraPerspective();
     this.skyDome.position.copy(this.camera.position);
     this.scenery.reset(this.playerZ);
@@ -311,10 +312,9 @@ export class GameEngine {
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.handleCrash(); }
     }
     const pitch = GAME_CONSTANTS.CAMERA_BASE_PITCH + (this.inputs.throttle ? -0.012 : 0) + (this.inputs.brake ? 0.024 : 0);
-    this.camera.position.set(this.playerX + this.currentLean * 0.12, GAME_CONSTANTS.CAMERA_HEIGHT, this.playerZ + GAME_CONSTANTS.CAMERA_Z);
-    this.camera.rotation.z = this.currentLean;
-    this.camera.rotation.x = pitch;
-    this.camera.rotation.y = -steerDir * 0.035;
+    const roadSample = this.scenery.roadPath.sample(-this.playerZ);
+    this.camera.position.copy(this.scenery.roadPath.toWorld(-this.playerZ, this.playerX + this.currentLean * 0.12, GAME_CONSTANTS.CAMERA_HEIGHT));
+    this.camera.rotation.set(pitch, roadSample.yaw - steerDir * 0.035, this.currentLean);
     this.skyDome.position.copy(this.camera.position);
     const time = this.clock.getElapsedTime();
     this.cockpit.updatePhysics(steerDir, this.inputs.brake, this.throttleIntensity, this.speedKmh, time);
@@ -347,8 +347,7 @@ export class GameEngine {
     this.camera.rotation.z += this.crashAngularVel.z * delta;
     this.speedKmh = Math.max(0, this.speedKmh - 75 * delta);
     this.playerZ -= (this.speedKmh / 3.6) * delta;
-    this.camera.position.z = this.playerZ;
-    this.camera.position.y = Math.max(0.35, this.camera.position.y - 1.8 * delta);
+    this.camera.position.copy(this.scenery.roadPath.toWorld(-this.playerZ, this.playerX, Math.max(0.35, GAME_CONSTANTS.CAMERA_HEIGHT - this.crashTimer * 1.8)));
     this.skyDome.position.copy(this.camera.position);
     this.scenery.update(this.playerZ);
     if (this.crashTimer > 1.3 && !this.isGameOver) {
@@ -395,6 +394,7 @@ export class GameEngine {
     this.animFrameId = 0;
     this.clearRemotePlayers();
     sounds.stopAll();
+    this.scenery.dispose();
     this.renderer.dispose();
     const skyMaterial = this.skyDome.material;
     if (Array.isArray(skyMaterial)) skyMaterial.forEach(m => m.dispose());

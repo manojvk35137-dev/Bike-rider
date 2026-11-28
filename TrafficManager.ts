@@ -1,6 +1,7 @@
 
 import * as THREE from 'three';
 import { GAME_CONSTANTS, type GameMode } from './constants';
+import { RoadPath } from './RoadPath';
 import {
   createVehicleModel,
   type VehicleInstance,
@@ -11,6 +12,7 @@ export class TrafficManager {
   public scene: THREE.Scene;
   public vehicles: VehicleInstance[] = [];
   public mode: GameMode = 'one-way';
+  private roadPath: RoadPath;
 
   public onCollision?: () => void;
   public onCloseCall?: (info: {
@@ -19,9 +21,10 @@ export class TrafficManager {
     vehicleType: VehicleType;
   }) => void;
 
-  constructor(scene: THREE.Scene, mode: GameMode = 'one-way') {
+  constructor(scene: THREE.Scene, mode: GameMode = 'one-way', roadPath?: RoadPath) {
     this.scene = scene;
     this.mode = mode;
+    this.roadPath = roadPath ?? new RoadPath();
   }
 
   public reset(playerZ: number, mode: GameMode = 'one-way'): void {
@@ -109,14 +112,15 @@ export class TrafficManager {
     const { mesh, taillightMat, dimensions } =
       createVehicleModel(type);
 
-    mesh.position.set(laneX, 0, spawnZ);
+    mesh.position.copy(this.roadPath.toWorld(-spawnZ, laneX, 0));
+    mesh.rotation.y = this.roadPath.getYaw(-spawnZ);
 
     const isOncoming =
       this.mode === 'two-way' &&
       (laneIndex === 0 || laneIndex === 1);
 
     if (isOncoming) {
-      mesh.rotation.y = Math.PI;
+      mesh.rotation.y += Math.PI;
     }
 
     const baseSpeed = this.getLaneSpeed(laneIndex);
@@ -185,7 +189,9 @@ export class TrafficManager {
         vehicle.z += speedMs * delta;
       }
 
-      vehicle.mesh.position.z = vehicle.z;
+      // Keep simulation coordinates road-relative; render on the shared curved path.
+      vehicle.mesh.position.copy(this.roadPath.toWorld(-vehicle.z, vehicle.x, 0));
+      vehicle.mesh.rotation.y = this.roadPath.getYaw(-vehicle.z) + (vehicle.speedKmh < 0 ? Math.PI : 0);
 
       vehicle.x = THREE.MathUtils.lerp(
         vehicle.x,
@@ -193,7 +199,7 @@ export class TrafficManager {
         0.05,
       );
 
-      vehicle.mesh.position.x = vehicle.x;
+
 
       let needsBrake = false;
 
