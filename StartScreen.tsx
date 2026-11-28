@@ -25,7 +25,7 @@ interface StartScreenProps {
 
 type LayoutKey =
   | 'bikeList' | 'viewer' | 'details' | 'exhaust' | 'modes'
-  | 'info' | 'ride' | 'friends' | 'multiplayer' | 'songControl';
+  | 'info' | 'ride' | 'friends' | 'multiplayer';
 
 type LayoutItem = { visible: boolean; scale: number };
 
@@ -39,10 +39,10 @@ const DEFAULT_LAYOUT: Record<LayoutKey, LayoutItem> = {
   ride: { visible: true, scale: 1 },
   friends: { visible: true, scale: 1 },
   multiplayer: { visible: true, scale: 1 },
-  songControl: { visible: true, scale: 1 },
 };
 
 const STORAGE_KEY = 'moto_rider_garage_layout_v3';
+const SONG_CONTROL_STORAGE_KEY = 'moto_rider_song_control_visible';
 
 export const StartScreen: React.FC<StartScreenProps> = ({
   onStartGame,
@@ -60,6 +60,15 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const [isPlayingAudioPreview, setIsPlayingAudioPreview] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [layoutSettingsOpen, setLayoutSettingsOpen] = useState(false);
+
+  // Music Control visibility is stored separately from garage layout.
+  const [songControlVisible, setSongControlVisible] = useState(() => {
+    try {
+      return localStorage.getItem(SONG_CONTROL_STORAGE_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
 
   const [layout, setLayout] = useState<Record<LayoutKey, LayoutItem>>(() => {
     try {
@@ -97,10 +106,19 @@ export const StartScreen: React.FC<StartScreenProps> = ({
     } catch {
       // Ignore storage errors (for example, private browsing restrictions).
     }
+  }, [layout]);
 
-    // Song Control remains independently controlled by the external app panel.
-    onSongControlVisibilityChange?.(layout.songControl.visible);
-  }, [layout, onSongControlVisibilityChange]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        SONG_CONTROL_STORAGE_KEY,
+        String(songControlVisible)
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+    onSongControlVisibilityChange?.(songControlVisible);
+  }, [songControlVisible, onSongControlVisibilityChange]);
 
   const updateLayout = (
     key: LayoutKey,
@@ -721,7 +739,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                   Garage Settings
                 </h2>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Open Layout Settings to customize garage items
+                  Manage music control and garage layout
                 </p>
               </div>
               <button
@@ -739,6 +757,34 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 className="text-xs text-amber-300 flex items-center gap-1"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset layout
+              </button>
+            </div>
+
+            {/* Music Control is an independent Garage Settings option. */}
+            <div className="garage-setting-row">
+              <div>
+                <div className="text-sm text-zinc-200">Music Control</div>
+                <div className="text-[10px] text-zinc-500">
+                  Show or hide music control
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSongControlVisible((visible) => !visible)}
+                className="col-span-2 justify-self-end flex items-center gap-1 text-xs"
+                aria-label={songControlVisible ? 'Hide Music Control' : 'Show Music Control'}
+              >
+                {songControlVisible ? (
+                  <>
+                    <Eye className="w-4 h-4 text-emerald-400" />
+                    Visible
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-4 h-4 text-zinc-500" />
+                    Hidden
+                  </>
+                )}
               </button>
             </div>
 
