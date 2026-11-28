@@ -153,6 +153,7 @@ export class TrafficManager {
     playerX: number,
     playerZ: number,
     playerSpeedKmh: number,
+    previousPlayerZ: number = playerZ,
   ): void {
     const {
       PLAYER_BOUNDS,
@@ -247,9 +248,13 @@ export class TrafficManager {
         Math.abs(playerX - vehicle.x) <
         halfPlayerW + halfVehW;
 
+      // Sweep the player's path between frames so high visual Nitro speed
+      // cannot skip through a vehicle between collision checks.
+      const playerMinZ = Math.min(previousPlayerZ, playerZ);
+      const playerMaxZ = Math.max(previousPlayerZ, playerZ);
       const overlapZ =
-        Math.abs(playerZ - vehicle.z) <
-        halfPlayerL + halfVehL;
+        vehicle.z >= playerMinZ - halfPlayerL - halfVehL &&
+        vehicle.z <= playerMaxZ + halfPlayerL + halfVehL;
 
       if (overlapX && overlapZ) {
         this.onCollision?.();
@@ -258,9 +263,10 @@ export class TrafficManager {
 
       const lateralDist = Math.abs(playerX - vehicle.x);
 
+      const closeCallHalfLength = (vehicle.length + PLAYER_BOUNDS.length) * 0.5;
       const isAlongside =
-        Math.abs(playerZ - vehicle.z) <
-        (vehicle.length + PLAYER_BOUNDS.length) * 0.5;
+        vehicle.z >= playerMinZ - closeCallHalfLength &&
+        vehicle.z <= playerMaxZ + closeCallHalfLength;
 
       if (
         isAlongside &&
